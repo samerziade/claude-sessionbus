@@ -6,11 +6,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { createHandlers } from './handlers.ts'
 import { type PeerIdentity, resolveIdentity } from './identity.ts'
-import { createFileMailbox } from './mailbox.ts'
 import { readSessionEntries, refreshBeacon, removeBeacon, writeBeacon } from './registry.ts'
+import { createTransport } from './transport.ts'
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR ?? join(homedir(), '.claude', 'sessions')
 const CHANNELS_HOME = process.env.CHANNELS_HOME ?? join(homedir(), '.claude', 'channels')
+const BROKER_SOCK = process.env.BROKER_SOCK ?? join(CHANNELS_HOME, 'broker.sock')
 const BEACON_REFRESH_MS = 30_000
 
 const INSTRUCTIONS =
@@ -45,7 +46,7 @@ async function main(): Promise<void> {
 		}
 	)
 
-	const transport = createFileMailbox(CHANNELS_HOME)
+	const transport = createTransport({ channelsHome: CHANNELS_HOME, socketPath: BROKER_SOCK })
 	const handlers = createHandlers({
 		self,
 		channelsHome: CHANNELS_HOME,

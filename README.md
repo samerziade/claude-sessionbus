@@ -140,3 +140,34 @@ This project was extracted from a larger monorepo, and three config files were c
 ## License
 
 Not yet specified.
+
+## Broker daemon (real-time transport)
+
+By default sessionbus uses the flat-file mailbox. For real-time delivery, run the **broker
+daemon** and switch sessions to socket mode.
+
+The broker is one long-lived process per machine, listening on a unix domain socket
+(`~/.claude/channels/broker.sock`). It routes messages by sessionId and holds an in-memory
+queue for sessions that are momentarily offline. It is a dumb router — identity resolution
+still happens client-side, so `whoami`/`list_peers`/`send_message` behave identically.
+
+### Run the broker
+
+```bash
+cd broker
+node src/index.ts start      # background daemon (logs to ~/.claude/channels/broker.log)
+node src/index.ts status     # running? pid? connected sessions?
+node src/index.ts stop
+node src/index.ts restart
+node src/index.ts             # or --foreground: run in this terminal (Ctrl-C to stop)
+```
+
+### Switch sessions to socket mode
+
+Set `SESSIONBUS_TRANSPORT=socket` for every session (e.g. in the user-level MCP registration
+`env` block). Unset — or `file` — keeps the file mailbox. All sessions on a machine must agree:
+socket-mode sessions only talk to other socket-mode sessions through the broker.
+
+While the broker is down, a socket-mode session buffers outgoing messages and reconnects with
+backoff; it does not fall back to the file mailbox. In-memory broker queues are dropped if the
+broker itself restarts (durable queues are a planned follow-up).
