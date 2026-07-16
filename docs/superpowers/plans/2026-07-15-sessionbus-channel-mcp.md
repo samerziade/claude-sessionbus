@@ -14,10 +14,10 @@ Spec: `docs/superpowers/specs/2026-07-15-sessionbus-channel-mcp-design.md`.
 
 - **COMMIT FREEZE (active):** The user has instructed that nothing for sessionbus be committed yet. Do **every** task's work as working-tree files, run the verification (`pnpm test`), but **run the `git commit` step only after the user explicitly lifts the freeze.** Until then, treat the final step of each task as "verify green + leave staged/unstaged on disk."
 - **Runtime:** Node `25.9.0`. Local module imports use explicit `.ts` extensions (required by Node's native type-stripping). No TS-only features that need transformation (no `enum`, `namespace`, parameter properties, decorators).
-- **Package is standalone:** `tools/sessionbus/` has its own `package.json` and `node_modules`; it is **not** added to `pnpm-workspace.yaml`. Install/test from inside that directory.
+- **Package is standalone:** `bus/` has its own `package.json` and `node_modules`; it is **not** added to `pnpm-workspace.yaml`. Install/test from inside that directory.
 - **Exact dependency versions:** install with `pnpm add -E` (no `^`/`~`), matching repo policy.
 - **No `any`:** use `unknown` + narrowing or precise types (mirrors repo convention).
-- **Paths:** absolute repo root is `/Users/samer/github/styreo/main`. All paths below are relative to it unless absolute.
+- **Paths:** absolute repo root is `/Users/samer/github/samerziade/claude-sessionbus`. All paths below are relative to it unless absolute.
 - **Config roots via env for tests:** code reads `CHANNELS_HOME` (default `~/.claude/channels`) and `SESSIONS_DIR` (default `~/.claude/sessions`); tests point these at temp dirs.
 
 ---
@@ -25,7 +25,7 @@ Spec: `docs/superpowers/specs/2026-07-15-sessionbus-channel-mcp-design.md`.
 ## File Structure
 
 ```text
-tools/sessionbus/
+bus/
   package.json            # standalone package, type: module, test script
   tsconfig.json           # allowImportingTsExtensions, noEmit
   README.md               # what it is, registration, launch flag, smoke test
@@ -53,9 +53,9 @@ Module dependency order (no cycles): `message` and `identity` are leaves; `regis
 
 **Files:**
 
-- Create: `tools/sessionbus/package.json`, `tools/sessionbus/tsconfig.json`
-- Create: `tools/sessionbus/src/message.ts`
-- Test: `tools/sessionbus/src/message.test.ts`
+- Create: `bus/package.json`, `bus/tsconfig.json`
+- Create: `bus/src/message.ts`
+- Test: `bus/src/message.test.ts`
 
 **Interfaces:**
 
@@ -69,7 +69,7 @@ Module dependency order (no cycles): `message` and `identity` are leaves; `regis
 
 - [ ] **Step 1: Create the package manifest**
 
-Create `tools/sessionbus/package.json`:
+Create `bus/package.json`:
 
 ```json
 {
@@ -87,21 +87,21 @@ Create `tools/sessionbus/package.json`:
 
 - [ ] **Step 2: Install dependencies (exact versions)**
 
-Run (from `tools/sessionbus/`):
+Run (from `bus/`):
 
 ```bash
-cd /Users/samer/github/styreo/main/tools/sessionbus
+cd /Users/samer/github/samerziade/claude-sessionbus/bus
 pnpm add -E --ignore-workspace @modelcontextprotocol/sdk
 pnpm add -E -D --ignore-workspace vitest typescript @types/node
 ```
 
-**`--ignore-workspace` is required.** Without it, because the repo root has a `pnpm-workspace.yaml`, pnpm walks up and folds this directory into the monorepo install — polluting the root `pnpm-lock.yaml` (adds a `tools/sessionbus:` importer + ~400 transitive packages) and symlinking deps into the root store instead of a local one. `--ignore-workspace` keeps the package genuinely standalone: a package-local `pnpm-lock.yaml` + local store, root lockfile untouched.
+**`--ignore-workspace` is required.** Without it, because the repo root has a `pnpm-workspace.yaml`, pnpm walks up and folds this directory into the monorepo install — polluting the root `pnpm-lock.yaml` (adds a `bus:` importer + ~400 transitive packages) and symlinking deps into the root store instead of a local one. `--ignore-workspace` keeps the package genuinely standalone: a package-local `pnpm-lock.yaml` + local store, root lockfile untouched.
 
-Expected: `tools/sessionbus/package.json` gains `dependencies.@modelcontextprotocol/sdk` and dev `vitest`/`typescript`/`@types/node` (all pinned without `^`), a `tools/sessionbus/pnpm-lock.yaml` is created, and `git status pnpm-lock.yaml` at the repo root is clean.
+Expected: `bus/package.json` gains `dependencies.@modelcontextprotocol/sdk` and dev `vitest`/`typescript`/`@types/node` (all pinned without `^`), a `bus/pnpm-lock.yaml` is created, and `git status pnpm-lock.yaml` at the repo root is clean.
 
 - [ ] **Step 3: Create tsconfig**
 
-Create `tools/sessionbus/tsconfig.json`:
+Create `bus/tsconfig.json`:
 
 ```json
 {
@@ -121,7 +121,7 @@ Create `tools/sessionbus/tsconfig.json`:
 
 - [ ] **Step 4: Write the failing test**
 
-Create `tools/sessionbus/src/message.test.ts`:
+Create `bus/src/message.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest'
@@ -176,12 +176,12 @@ describe('toChannelMeta', () => {
 
 - [ ] **Step 5: Run the test to verify it fails**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test`
 Expected: FAIL — cannot resolve `./message.ts` (module not created yet).
 
 - [ ] **Step 6: Implement `message.ts`**
 
-Create `tools/sessionbus/src/message.ts`:
+Create `bus/src/message.ts`:
 
 ```ts
 import { randomBytes } from 'node:crypto'
@@ -234,13 +234,13 @@ export function toChannelMeta(msg: ChannelMessage): Record<string, string> {
 
 - [ ] **Step 7: Run the test to verify it passes**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test`
 Expected: PASS (all `message` tests green).
 
 - [ ] **Step 8: Commit (only if the commit freeze has been lifted)**
 
 ```bash
-git add tools/sessionbus/package.json tools/sessionbus/tsconfig.json tools/sessionbus/pnpm-lock.yaml tools/sessionbus/src/message.ts tools/sessionbus/src/message.test.ts
+git add bus/package.json bus/tsconfig.json bus/pnpm-lock.yaml bus/src/message.ts bus/src/message.test.ts
 git commit -m "feat(sessionbus): scaffold package + message id/meta module"
 ```
 
@@ -250,8 +250,8 @@ git commit -m "feat(sessionbus): scaffold package + message id/meta module"
 
 **Files:**
 
-- Create: `tools/sessionbus/src/identity.ts`
-- Test: `tools/sessionbus/src/identity.test.ts`
+- Create: `bus/src/identity.ts`
+- Test: `bus/src/identity.test.ts`
 
 **Interfaces:**
 
@@ -265,7 +265,7 @@ git commit -m "feat(sessionbus): scaffold package + message id/meta module"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tools/sessionbus/src/identity.test.ts`:
+Create `bus/src/identity.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest'
@@ -318,12 +318,12 @@ describe('resolveIdentity', () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test identity`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test identity`
 Expected: FAIL — `./identity.ts` not found.
 
 - [ ] **Step 3: Implement `identity.ts`**
 
-Create `tools/sessionbus/src/identity.ts`:
+Create `bus/src/identity.ts`:
 
 ```ts
 export interface ParsedName {
@@ -373,13 +373,13 @@ export function resolveIdentity(sessionId: string, entries: SessionEntry[]): Pee
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test identity`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test identity`
 Expected: PASS.
 
 - [ ] **Step 5: Commit (only if the commit freeze has been lifted)**
 
 ```bash
-git add tools/sessionbus/src/identity.ts tools/sessionbus/src/identity.test.ts
+git add bus/src/identity.ts bus/src/identity.test.ts
 git commit -m "feat(sessionbus): session-name parsing + own-identity resolution"
 ```
 
@@ -389,8 +389,8 @@ git commit -m "feat(sessionbus): session-name parsing + own-identity resolution"
 
 **Files:**
 
-- Create: `tools/sessionbus/src/registry.ts`
-- Test: `tools/sessionbus/src/registry.test.ts`
+- Create: `bus/src/registry.ts`
+- Test: `bus/src/registry.test.ts`
 
 **Interfaces:**
 
@@ -406,7 +406,7 @@ git commit -m "feat(sessionbus): session-name parsing + own-identity resolution"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tools/sessionbus/src/registry.test.ts`:
+Create `bus/src/registry.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -491,12 +491,12 @@ describe('beacons', () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test registry`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test registry`
 Expected: FAIL — `./registry.ts` not found.
 
 - [ ] **Step 3: Implement `registry.ts`**
 
-Create `tools/sessionbus/src/registry.ts`:
+Create `bus/src/registry.ts`:
 
 ```ts
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
@@ -592,13 +592,13 @@ export function readBeacons(channelsHome: string): Beacon[] {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test registry`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test registry`
 Expected: PASS.
 
 - [ ] **Step 5: Commit (only if the commit freeze has been lifted)**
 
 ```bash
-git add tools/sessionbus/src/registry.ts tools/sessionbus/src/registry.test.ts
+git add bus/src/registry.ts bus/src/registry.test.ts
 git commit -m "feat(sessionbus): session registry reader + presence beacons + pid liveness"
 ```
 
@@ -608,8 +608,8 @@ git commit -m "feat(sessionbus): session registry reader + presence beacons + pi
 
 **Files:**
 
-- Create: `tools/sessionbus/src/mailbox.ts`
-- Test: `tools/sessionbus/src/mailbox.test.ts`
+- Create: `bus/src/mailbox.ts`
+- Test: `bus/src/mailbox.test.ts`
 
 **Interfaces:**
 
@@ -621,7 +621,7 @@ git commit -m "feat(sessionbus): session registry reader + presence beacons + pi
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tools/sessionbus/src/mailbox.test.ts`:
+Create `bus/src/mailbox.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -697,12 +697,12 @@ describe('watch', () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test mailbox`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test mailbox`
 Expected: FAIL — `./mailbox.ts` not found.
 
 - [ ] **Step 3: Implement `mailbox.ts`**
 
-Create `tools/sessionbus/src/mailbox.ts`:
+Create `bus/src/mailbox.ts`:
 
 ```ts
 import {
@@ -807,13 +807,13 @@ export function createFileMailbox(channelsHome: string): Transport {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test mailbox`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test mailbox`
 Expected: PASS (the `watch` test waits ~1.3s for the poll interval).
 
 - [ ] **Step 5: Commit (only if the commit freeze has been lifted)**
 
 ```bash
-git add tools/sessionbus/src/mailbox.ts tools/sessionbus/src/mailbox.test.ts
+git add bus/src/mailbox.ts bus/src/mailbox.test.ts
 git commit -m "feat(sessionbus): flat-file mailbox transport (send/poll/watch)"
 ```
 
@@ -823,8 +823,8 @@ git commit -m "feat(sessionbus): flat-file mailbox transport (send/poll/watch)"
 
 **Files:**
 
-- Create: `tools/sessionbus/src/address.ts`
-- Test: `tools/sessionbus/src/address.test.ts`
+- Create: `bus/src/address.ts`
+- Test: `bus/src/address.test.ts`
 
 **Interfaces:**
 
@@ -836,7 +836,7 @@ git commit -m "feat(sessionbus): flat-file mailbox transport (send/poll/watch)"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tools/sessionbus/src/address.test.ts`:
+Create `bus/src/address.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest'
@@ -907,12 +907,12 @@ describe('resolveTo', () => {
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test address`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test address`
 Expected: FAIL — `./address.ts` not found.
 
 - [ ] **Step 3: Implement `address.ts`**
 
-Create `tools/sessionbus/src/address.ts`:
+Create `bus/src/address.ts`:
 
 ```ts
 import type { PeerIdentity } from './identity.ts'
@@ -970,13 +970,13 @@ export function resolveTo(to: string, self: PeerIdentity, peers: PeerIdentity[])
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test address`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test address`
 Expected: PASS.
 
 - [ ] **Step 5: Commit (only if the commit freeze has been lifted)**
 
 ```bash
-git add tools/sessionbus/src/address.ts tools/sessionbus/src/address.test.ts
+git add bus/src/address.ts bus/src/address.test.ts
 git commit -m "feat(sessionbus): flexible to-address resolution"
 ```
 
@@ -986,8 +986,8 @@ git commit -m "feat(sessionbus): flexible to-address resolution"
 
 **Files:**
 
-- Create: `tools/sessionbus/src/handlers.ts`
-- Test: `tools/sessionbus/src/handlers.test.ts`
+- Create: `bus/src/handlers.ts`
+- Test: `bus/src/handlers.test.ts`
 
 **Interfaces:**
 
@@ -1002,7 +1002,7 @@ git commit -m "feat(sessionbus): flexible to-address resolution"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tools/sessionbus/src/handlers.test.ts`:
+Create `bus/src/handlers.test.ts`:
 
 ```ts
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -1109,12 +1109,12 @@ Note: `shortId('wkr-1234')` strips the hyphen → `'wkr123'`; that is the expect
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test handlers`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test handlers`
 Expected: FAIL — `./handlers.ts` not found.
 
 - [ ] **Step 3: Implement `handlers.ts`**
 
-Create `tools/sessionbus/src/handlers.ts`:
+Create `bus/src/handlers.ts`:
 
 ```ts
 import { resolveIdentity, type PeerIdentity, type SessionEntry } from './identity.ts'
@@ -1238,18 +1238,18 @@ export function createHandlers(deps: HandlerDeps) {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test handlers`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test handlers`
 Expected: PASS.
 
 - [ ] **Step 5: Run the whole suite**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm test`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm test`
 Expected: PASS — all six test files green.
 
 - [ ] **Step 6: Commit (only if the commit freeze has been lifted)**
 
 ```bash
-git add tools/sessionbus/src/handlers.ts tools/sessionbus/src/handlers.test.ts
+git add bus/src/handlers.ts bus/src/handlers.test.ts
 git commit -m "feat(sessionbus): DI tool handlers (whoami/list_peers/send_message) + inbound bridge"
 ```
 
@@ -1259,7 +1259,7 @@ git commit -m "feat(sessionbus): DI tool handlers (whoami/list_peers/send_messag
 
 **Files:**
 
-- Create: `tools/sessionbus/src/index.ts`
+- Create: `bus/src/index.ts`
 
 **Interfaces:**
 
@@ -1268,7 +1268,7 @@ git commit -m "feat(sessionbus): DI tool handlers (whoami/list_peers/send_messag
 
 - [ ] **Step 1: Implement `index.ts`**
 
-Create `tools/sessionbus/src/index.ts`:
+Create `bus/src/index.ts`:
 
 ```ts
 #!/usr/bin/env node
@@ -1402,7 +1402,7 @@ main().catch((err) => {
 
 - [ ] **Step 2: Type-check**
 
-Run: `cd /Users/samer/github/styreo/main/tools/sessionbus && pnpm exec tsc --noEmit`
+Run: `cd /Users/samer/github/samerziade/claude-sessionbus/bus && pnpm exec tsc --noEmit`
 Expected: no errors.
 
 - [ ] **Step 3: Smoke-run the process directly (no Claude yet)**
@@ -1410,7 +1410,7 @@ Expected: no errors.
 Run:
 
 ```bash
-cd /Users/samer/github/styreo/main/tools/sessionbus
+cd /Users/samer/github/samerziade/claude-sessionbus/bus
 CLAUDE_CODE_SESSION_ID=test-smoke SESSIONS_DIR=/tmp/sb-smoke-sessions CHANNELS_HOME=/tmp/sb-smoke-home node src/index.ts <<< ''
 ```
 
@@ -1419,7 +1419,7 @@ Expected: the process starts, waits on stdio, and exits cleanly on EOF/Ctrl-C wi
 - [ ] **Step 4: Commit (only if the commit freeze has been lifted)**
 
 ```bash
-git add tools/sessionbus/src/index.ts
+git add bus/src/index.ts
 git commit -m "feat(sessionbus): MCP server wiring, tools, and presence beacon lifecycle"
 ```
 
@@ -1429,14 +1429,14 @@ git commit -m "feat(sessionbus): MCP server wiring, tools, and presence beacon l
 
 **Files:**
 
-- Create: `tools/sessionbus/README.md`
+- Create: `bus/README.md`
 - Modify: `~/.claude.json` (user-level MCP registration — done by the user/operator, not committed)
 
 **Interfaces:** none (documentation + manual verification of the two spec open questions).
 
 - [ ] **Step 1: Write the README**
 
-Create `tools/sessionbus/README.md`:
+Create `bus/README.md`:
 
 ```markdown
 # sessionbus
@@ -1460,7 +1460,7 @@ Add to `~/.claude.json`:
 \`\`\`json
 {
   "mcpServers": {
-    "sessionbus": { "command": "node", "args": ["/Users/samer/github/styreo/main/tools/sessionbus/src/index.ts"] }
+    "sessionbus": { "command": "node", "args": ["/Users/samer/github/samerziade/claude-sessionbus/bus/src/index.ts"] }
   }
 }
 \`\`\`
@@ -1519,7 +1519,7 @@ If B does **not** wake on the injected event, note it: the fallback is that the 
 - [ ] **Step 4: Commit (only if the commit freeze has been lifted)**
 
 ```bash
-git add tools/sessionbus/README.md
+git add bus/README.md
 git commit -m "docs(sessionbus): README with registration, launch flag, and smoke test"
 ```
 

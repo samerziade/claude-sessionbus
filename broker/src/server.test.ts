@@ -3,8 +3,8 @@ import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { encodeFrame, createFrameDecoder, type Frame } from './protocol.ts'
-import { startBroker, type BrokerServer } from './server.ts'
+import { createFrameDecoder, encodeFrame, type Frame } from './protocol.ts'
+import { type BrokerServer, startBroker } from './server.ts'
 
 const cleanups: Array<() => void | Promise<void>> = []
 afterEach(async () => {

@@ -16,6 +16,15 @@
 				"noUnusedFunctionParameters": "error",
 				"noUnusedLabels": "error",
 				"noUnreachable": "error"
+			},
+			"suspicious": {
+				"noExplicitAny": "error"
+			},
+			"style": {
+				"useConsistentTypeDefinitions": "error"
+			},
+			"complexity": {
+				"noImplicitCoercions": "error"
 			}
 		}
 	},

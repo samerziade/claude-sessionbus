@@ -1,7 +1,7 @@
 {
 	"scripts": {
 		"fmt": "biome format --write . && biome check --write --unsafe .",
-		"lint": "pnpm -r lint"
+		"lint": "biome check . && pnpm -r lint"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",

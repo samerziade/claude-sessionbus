@@ -1,13 +1,13 @@
 {
-  // Shared markdownlint rules for this repo. Used by the markdownlint VS Code
-  // extension and by `npx markdownlint-cli2` on the command line.
-  "config": {
-    "default": true,
-    // Prose is not hard-wrapped (the Markdown formatter uses proseWrap: preserve),
-    // so long lines are intentional. Code fences still require a language (MD040)
-    // and diagrams should be Mermaid, per CLAUDE.md.
-    "MD013": false
-  },
-  "globs": ["**/*.md"],
-  "ignores": ["**/node_modules/**"]
+	// Shared markdownlint rules for this repo. Used by the markdownlint VS Code
+	// extension and by `npx markdownlint-cli2` on the command line.
+	"config": {
+		"default": true,
+		// Prose is not hard-wrapped (the Markdown formatter uses proseWrap: preserve),
+		// so long lines are intentional. Code fences still require a language (MD040)
+		// and diagrams should be Mermaid, per CLAUDE.md.
+		"MD013": false
+	},
+	"globs": ["**/*.md"],
+	"ignores": ["**/node_modules/**"]
 }
