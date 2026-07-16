@@ -50,6 +50,7 @@ export function createSocketTransport(opts: SocketTransportOptions): Transport {
 
 	function scheduleReconnect(): void {
 		if (stopped || reconnectTimer) return
+		log(`broker unreachable; reconnecting in ${backoff}ms`)
 		reconnectTimer = setTimeout(() => {
 			reconnectTimer = undefined
 			open()
