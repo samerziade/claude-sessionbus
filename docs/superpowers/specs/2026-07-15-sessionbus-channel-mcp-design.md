@@ -89,7 +89,7 @@ Claude Code already maintains a live registry: one JSON file per running session
 {
   "pid": 60835,
   "sessionId": "40b1b2a0-faee-4aa6-aa2c-a56535b547dd",
-  "cwd": "/Users/samer/github/styreo/main",
+  "cwd": "/Users/samer/github/samerziade/claude-sessionbus",
   "name": "main-8d",
   "nameSource": "derived",
   "status": "busy",
@@ -231,7 +231,7 @@ The `Server` `instructions` teach Claude the model, roughly:
 
 ## Runtime, packaging & registration
 
-- **Location:** `tools/sessionbus/` in this repo (personal cross-project tooling for
+- **Location:** `bus/` in this repo (personal cross-project tooling for
   now; will likely graduate to its own repo later).
 - **Runtime:** pure Node. Only dependency is `@modelcontextprotocol/sdk`. Node ≥ 23.6
   runs TypeScript directly via native type-stripping (the machine is on Node 25), so
@@ -240,7 +240,7 @@ The `Server` `instructions` teach Claude the model, roughly:
 - **Structure** (transport behind an interface for testability + future daemon swap):
 
   ```text
-  tools/sessionbus/
+  bus/
     package.json
     src/
       index.ts        # MCP server wiring: capabilities, tools, notifications, watch loop
@@ -257,7 +257,7 @@ The `Server` `instructions` teach Claude the model, roughly:
   ```json
   {
     "mcpServers": {
-      "sessionbus": { "command": "node", "args": ["/Users/samer/github/styreo/main/tools/sessionbus/src/index.ts"] }
+      "sessionbus": { "command": "node", "args": ["/Users/samer/github/samerziade/claude-sessionbus/bus/src/index.ts"] }
     }
   }
   ```

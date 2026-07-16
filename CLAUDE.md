@@ -1,8 +1,7 @@
 # CLAUDE.md
 
 Guidance for Claude Code (and other AI agents) working in this repo — the fast, current,
-source-of-truth orientation. The full design brief lives in `docs/superpowers/` and the
-archived `sessionbus-channel-mcp` OpenSpec change.
+source-of-truth orientation. The full design brief lives in `docs/superpowers/`.
 
 ## What this is
 
@@ -40,21 +39,17 @@ Node 25 runs `.ts` directly (native type-stripping) — **no build step**. Local
 explicit `.ts` extensions (`./message.ts`); SDK imports use `.js` specifiers
 (`@modelcontextprotocol/sdk/server/index.js`).
 
-## Configs (reconciled — the old styreo drift is fixed)
+## Configs
 
-The three configs carried over from the old styreo monorepo have been retargeted to this
-standalone repo. Current, verified state:
+Current, verified state:
 
-- **`bus/tsconfig.json`** is NodeNext + `allowImportingTsExtensions` + `types: ["node"]` + strict +
-  noEmit. Plain `pnpm exec tsc --noEmit` (run from `bus/`) is clean — no hand-passed flags needed.
-- **`pnpm-workspace.yaml`** (repo root) globs `bus`, so the repo is a coherent one-member workspace.
-  A plain `pnpm install` from the root (or from `bus/`) works; `--ignore-workspace` is no longer
-  needed.
-- **`biome.json`** (repo root) has been trimmed of the styreo `apps/web/**` linter override and the
-  Tailwind CSS directives (no CSS/JSX exists here). `pnpm exec biome check bus/src` is clean.
-
-Reconciled by the `sessionbus-channel-mcp` OpenSpec change (see
-`openspec/changes/archive/2026-07-15-sessionbus-channel-mcp/`, task 8.2).
+- **`bus/tsconfig.json`** and **`broker/tsconfig.json`** are NodeNext + `allowImportingTsExtensions`
+  + `types: ["node"]` + strict + noEmit. Plain `pnpm exec tsc --noEmit` (run from either package)
+  is clean — no hand-passed flags needed.
+- **`pnpm-workspace.yaml`** (repo root) globs `bus` and `broker`, so the repo is a coherent
+  two-member workspace. A plain `pnpm install` from the root or from either package works.
+- **`biome.json`** (repo root) holds the formatter and linter config for the whole repo — there is
+  no CSS or JSX here, so it covers TypeScript and JSON only. `pnpm exec biome check` is clean.
 
 ## Constraints (Node 25 native type-stripping)
 
