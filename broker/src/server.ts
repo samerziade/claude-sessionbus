@@ -1,5 +1,5 @@
 import { existsSync, unlinkSync } from 'node:fs'
-import { connect, createServer } from 'node:net'
+import { type Socket, connect, createServer } from 'node:net'
 import { createBrokerCore, type Conn } from './broker.ts'
 import { PROTOCOL_VERSION, createFrameDecoder, encodeFrame } from './protocol.ts'
 
@@ -19,7 +19,10 @@ export function startBroker(opts: StartBrokerOptions): Promise<BrokerServer> {
 		() =>
 			new Promise<BrokerServer>((resolve, reject) => {
 				const core = createBrokerCore({ log })
+				const sockets = new Set<Socket>()
 				const server = createServer((socket) => {
+					sockets.add(socket)
+					socket.once('close', () => sockets.delete(socket))
 					const conn: Conn = {
 						send: (frame) => {
 							socket.write(encodeFrame(frame))
@@ -69,6 +72,10 @@ export function startBroker(opts: StartBrokerOptions): Promise<BrokerServer> {
 									}
 									res()
 								})
+								// net.Server.close() only finishes once every open connection has
+								// ended; nothing ends them on its own, so force-close the ones
+								// still live rather than hang waiting for a client to disconnect.
+								for (const socket of sockets) socket.destroy()
 							})
 					})
 				})
