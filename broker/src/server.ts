@@ -52,6 +52,9 @@ export function startBroker(opts: StartBrokerOptions): Promise<BrokerServer> {
 				server.on('error', reject)
 				server.listen(opts.socketPath, () => {
 					server.removeListener('error', reject)
+					server.on('error', (err) => {
+						log(`server error: ${err instanceof Error ? err.message : String(err)}`)
+					})
 					resolve({
 						connectedCount: () => core.connectedCount(),
 						close: () =>
