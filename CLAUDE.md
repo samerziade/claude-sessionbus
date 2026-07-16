@@ -31,7 +31,7 @@ trust the filesystem). Source is `bus/src/*.ts`, each module paired with a `*.te
 
 ```bash
 cd bus
-pnpm install --ignore-workspace     # see the config-drift note below re: --ignore-workspace
+pnpm install                        # workspace is coherent now — no --ignore-workspace needed
 pnpm test                           # vitest run — 47 tests; two wait ~1.3s on the mailbox poll interval (expected)
 pnpm start                          # node src/index.ts — runs the server on stdio (see teardown note)
 ```
@@ -40,31 +40,21 @@ Node 25 runs `.ts` directly (native type-stripping) — **no build step**. Local
 explicit `.ts` extensions (`./message.ts`); SDK imports use `.js` specifiers
 (`@modelcontextprotocol/sdk/server/index.js`).
 
-## ⚠️ Config drift — the checked-in configs are stale (fix before trusting them)
+## Configs (reconciled — the old styreo drift is fixed)
 
-The source code is correct and matches the design. Three config files were carried over from the
-old styreo monorepo and **do not match this standalone repo**. Verified current state:
+The three configs carried over from the old styreo monorepo have been retargeted to this
+standalone repo. Current, verified state:
 
-- **`bus/tsconfig.json`** is the styreo web-app config (`jsx: react-jsx`, `moduleResolution:
-Bundler`, `include: ["src", "start.config.ts"]` where `start.config.ts` doesn't exist,
-  `exclude: ["../../services", "../../libs"]`). As checked in, **`pnpm exec tsc --noEmit` errors**
-  (can't find node globals). The source compiles clean under the intended config:
+- **`bus/tsconfig.json`** is NodeNext + `allowImportingTsExtensions` + `types: ["node"]` + strict +
+  noEmit. Plain `pnpm exec tsc --noEmit` (run from `bus/`) is clean — no hand-passed flags needed.
+- **`pnpm-workspace.yaml`** (repo root) globs `bus`, so the repo is a coherent one-member workspace.
+  A plain `pnpm install` from the root (or from `bus/`) works; `--ignore-workspace` is no longer
+  needed.
+- **`biome.json`** (repo root) has been trimmed of the styreo `apps/web/**` linter override and the
+  Tailwind CSS directives (no CSS/JSX exists here). `pnpm exec biome check bus/src` is clean.
 
-  ```bash
-  pnpm exec tsc --noEmit --types node --moduleResolution nodenext --module nodenext --allowImportingTsExtensions
-  ```
-
-  Fix: rewrite `tsconfig.json` to NodeNext + `allowImportingTsExtensions` + `types: ["node"]` +
-  strict + noEmit (the setup `HANDOFF.md` describes), so plain `pnpm exec tsc --noEmit` is clean.
-
-- **`pnpm-workspace.yaml`** (repo root) globs `sessionbus/*`, which no longer matches `bus/`. A
-  plain `pnpm install` at the root therefore installs nothing for the package — hence
-  `--ignore-workspace` from inside `bus/`. Fix: point the glob at `bus`, or delete the workspace
-  file entirely (this is a single standalone package).
-- **`biome.json`** (repo root) is also a styreo copy (has `apps/web/**` overrides, Tailwind
-  directives). Harmless for now, but retarget or trim it when you touch tooling.
-
-When you do config work, prefer fixing these over documenting around them.
+Reconciled by the `sessionbus-channel-mcp` OpenSpec change (see
+`openspec/changes/archive/2026-07-15-sessionbus-channel-mcp/`, task 8.2).
 
 ## Constraints (Node 25 native type-stripping)
 
