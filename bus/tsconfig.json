@@ -1,20 +1,18 @@
 {
 	"compilerOptions": {
 		"target": "ESNext",
-		"useDefineForClassFields": true,
-		"module": "ESNext",
-		"moduleResolution": "Bundler",
-		"baseUrl": ".",
-		"allowJs": false,
-		"strict": true,
-		"noEmit": true,
-		"incremental": true,
-		"tsBuildInfoFile": "./tsconfig.tsbuildinfo",
-		"jsx": "react-jsx",
+		"lib": ["ESNext"],
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"types": ["node"],
+		"allowImportingTsExtensions": true,
 		"resolveJsonModule": true,
 		"isolatedModules": true,
+		"strict": true,
+		"noEmit": true,
 		"skipLibCheck": true,
-		"ignoreDeprecations": "6.0"
+		"incremental": true,
+		"tsBuildInfoFile": "./tsconfig.tsbuildinfo"
 	},
 	"include": ["src"],
 	"exclude": ["node_modules"]
