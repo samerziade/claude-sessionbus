@@ -1,9 +1,9 @@
-import { type Socket, connect } from 'node:net'
+import { connect, type Socket } from 'node:net'
 import {
-	PROTOCOL_VERSION,
 	createFrameDecoder,
 	encodeFrame,
-	type Frame
+	type Frame,
+	PROTOCOL_VERSION
 } from '../../broker/src/protocol.ts'
 import type { Transport } from './mailbox.ts'
 import type { ChannelMessage } from './message.ts'
@@ -69,7 +69,11 @@ export function createSocketTransport(opts: SocketTransportOptions): Transport {
 			backoff = initialBackoff
 			if (ownSessionId !== undefined) {
 				sock.write(
-					encodeFrame({ type: 'register', sessionId: ownSessionId, protocolVersion: PROTOCOL_VERSION })
+					encodeFrame({
+						type: 'register',
+						sessionId: ownSessionId,
+						protocolVersion: PROTOCOL_VERSION
+					})
 				)
 			}
 			flush()

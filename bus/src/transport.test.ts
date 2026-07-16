@@ -31,14 +31,22 @@ describe('createTransport', () => {
 	it('file mode reads the file mailbox inbox', () => {
 		const channelsHome = tempHome()
 		createFileMailbox(channelsHome).send('own', msg('m1')) // seed own inbox
-		const t = createTransport({ channelsHome, socketPath: join(channelsHome, 'broker.sock'), mode: 'file' })
+		const t = createTransport({
+			channelsHome,
+			socketPath: join(channelsHome, 'broker.sock'),
+			mode: 'file'
+		})
 		expect(t.poll('own').map((m) => m.id)).toEqual(['m1'])
 	})
 
 	it('socket mode does not read the file mailbox (poll returns [])', () => {
 		const channelsHome = tempHome()
 		createFileMailbox(channelsHome).send('own', msg('m1')) // seed own inbox
-		const t = createTransport({ channelsHome, socketPath: join(channelsHome, 'broker.sock'), mode: 'socket' })
+		const t = createTransport({
+			channelsHome,
+			socketPath: join(channelsHome, 'broker.sock'),
+			mode: 'socket'
+		})
 		expect(t.poll('own')).toEqual([])
 	})
 
@@ -61,7 +69,11 @@ describe('createTransport', () => {
 		createFileMailbox(channelsHome).send('own', msg('m1'))
 		const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
 		cleanups.push(() => writeSpy.mockRestore())
-		const t = createTransport({ channelsHome, socketPath: join(channelsHome, 'broker.sock'), mode: 'bogus' })
+		const t = createTransport({
+			channelsHome,
+			socketPath: join(channelsHome, 'broker.sock'),
+			mode: 'bogus'
+		})
 		expect(t.poll('own').map((m) => m.id)).toEqual(['m1'])
 		expect(writeSpy).toHaveBeenCalledWith(expect.stringMatching(/unknown SESSIONBUS_TRANSPORT/))
 	})

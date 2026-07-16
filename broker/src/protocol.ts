@@ -2,12 +2,36 @@ import type { ChannelMessage } from '../../bus/src/message.ts'
 
 export const PROTOCOL_VERSION = 1
 
-export type RegisterFrame = { type: 'register'; sessionId: string; protocolVersion: number }
-export type SendFrame = { type: 'send'; to: string; msg: ChannelMessage }
-export type DeliverFrame = { type: 'deliver'; msg: ChannelMessage }
-export type WelcomeFrame = { type: 'welcome'; protocolVersion: number }
-export type StatsRequestFrame = { type: 'stats' }
-export type StatsReplyFrame = { type: 'stats_reply'; connected: number }
+export interface RegisterFrame {
+	type: 'register'
+	sessionId: string
+	protocolVersion: number
+}
+
+export interface SendFrame {
+	type: 'send'
+	to: string
+	msg: ChannelMessage
+}
+
+export interface DeliverFrame {
+	type: 'deliver'
+	msg: ChannelMessage
+}
+
+export interface WelcomeFrame {
+	type: 'welcome'
+	protocolVersion: number
+}
+
+export interface StatsRequestFrame {
+	type: 'stats'
+}
+
+export interface StatsReplyFrame {
+	type: 'stats_reply'
+	connected: number
+}
 
 export type Frame =
 	| RegisterFrame

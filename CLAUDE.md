@@ -10,7 +10,8 @@ over stdio, that lets separate Claude Code sessions on the same machine **discov
 each other**. A session _sends_ by calling a tool; it _receives_ as a `<channel …>` event
 injected into its context, which drives a turn even when the session is idle.
 
-Status: complete MVP. **47 tests passing.** Nothing is on npm; it runs locally.
+Status: complete MVP. **72 tests passing** (55 in `bus`, 17 in `broker`). Nothing is on npm; it
+runs locally.
 
 ## Layout
 
@@ -26,14 +27,24 @@ The package lives in **`bus/`**. Source is `bus/src/*.ts`, each module paired wi
 | `handlers.ts` | DI tool handlers (`whoami`/`list_peers`/`send_message`) + inbound→notify bridge    | I/O via deps |
 | `index.ts`    | `main()`: build real deps, wire the MCP server, connect stdio (glue; no unit test) | I/O          |
 
-## Commands (run from `bus/`)
+## Commands
+
+From the repo root:
 
 ```bash
-cd bus
-pnpm install                        # workspace is coherent now — no --ignore-workspace needed
-pnpm test                           # vitest run — 47 tests; two wait ~1.3s on the mailbox poll interval (expected)
-pnpm start                          # node src/index.ts — runs the server on stdio (see teardown note)
+pnpm install                        # two-member workspace: bus + broker
+pnpm lint                           # biome check (whole repo) + tsc --noEmit per package — the CI gate
+pnpm fmt                            # format + apply safe/unsafe fixes; run this after code changes
 ```
+
+From a package (`bus/` or `broker/`):
+
+```bash
+pnpm test                           # vitest run — 55 tests in bus, 17 in broker
+pnpm start                          # node src/index.ts (see teardown note before smoke-testing)
+```
+
+Two `bus` tests wait ~1.3s on the mailbox poll interval — that is expected, not a hang.
 
 Node 25 runs `.ts` directly (native type-stripping) — **no build step**. Local imports use
 explicit `.ts` extensions (`./message.ts`); SDK imports use `.js` specifiers
@@ -54,9 +65,75 @@ Current, verified state:
 ## Constraints (Node 25 native type-stripping)
 
 - No `enum` / `namespace` / decorators / parameter-properties (type-stripping only, no transform).
-- No `any`.
 - Shared on-disk state is written atomically: write `.tmp`, then `renameSync`. Readers filter
   `*.json`, so a partial write is never observed.
+
+## TypeScript conventions
+
+Rules marked **[biome]** fail `pnpm lint`. The rest are **[prose]** — the linter cannot express
+them, so they hold by review.
+
+- **[biome] No `any`.** Use `unknown` and narrow with a type guard, or write the precise type.
+  Enforced by `suspicious/noExplicitAny`.
+- **[prose] No unsafe casts.** `as unknown as X` and `<any>` are banned too — a cast that launders
+  a type past the checker is the same defect as `any`, and Biome cannot see it. Derive or narrow to
+  the real type instead. A genuinely unavoidable cast at a runtime boundary is permitted **only**
+  with an adjacent comment saying why:
+
+  ```ts
+  // unavoidable-cast: node's net.Socket exposes no typed handle for this
+  ```
+
+- **[biome] `interface` for object shapes, `type` for unions, intersections, and other
+  non-object aliases.** `protocol.ts` is the worked example: each frame is an `interface`, the
+  `Frame` union is a `type`. Enforced by `style/useConsistentTypeDefinitions`.
+- **[biome] Coerce explicitly.** `Boolean(x)`, not `!!x`; `Number(x)`, not `+x`. Identical at
+  runtime, but explicit reads clearly and greps. Enforced by `complexity/noImplicitCoercions`.
+- **[prose] Reuse canonical types; never re-derive.** A shared type has exactly one home and is
+  imported from there. `protocol.ts` imports `ChannelMessage` from `bus` rather than restating its
+  shape — restating it would let the wire format drift from the message it carries. If a type has
+  no exported alias yet, add one at its canonical home rather than deriving a private copy.
+- **[prose] No large inline object types in signatures.** Declare a named `interface` next to the
+  consuming code.
+
+### Module state: factory + singleton
+
+Shared mutable state lives in a closure returned by a `createX()` factory — never a module-level
+`let`. Vitest does not reset module state between cases, so a module-level `let` leaks one test's
+leftovers into the next.
+
+`createFrameDecoder()` in `broker/src/protocol.ts` is the pattern: it owns a `buffer` that must
+survive between calls, so the factory returns a decoder closure and each test constructs its own.
+Where production needs one shared instance, export the factory *and* a singleton built from it
+(`export const x = createX()`); production reads the singleton, tests call the factory.
+
+Do **not** reach for `__resetForTests` exports, env-gated branches inside production code, or
+`vi.resetModules()`. Those are the workarounds this pattern exists to avoid.
+
+## Testing conventions
+
+Every module gets a paired `*.test.ts`. Structure: `describe` per function/module under test,
+test names describing behavior rather than implementation, and early-return type narrowing
+(`if (!result.ok) return` after asserting `result.ok`).
+
+Cover four categories in each test file:
+
+1. **Happy path** — the primary use case and its important variations.
+2. **Negative scenarios** — invalid or disallowed input: missing fields, unknown recipients,
+   violated preconditions.
+3. **Edge cases** — boundary and unusual-but-valid input: empty collections, exactly-at-limit
+   values, optional fields omitted vs. explicitly set, single vs. multi-item lists.
+4. **Blind spots** — what is easy to overlook: partial writes never observed, order-dependence,
+   idempotency, a payload matching its declared shape.
+
+Edge cases and blind spots are scoped **per function** — ask "what could go wrong with _this_
+function?" rather than working a generic checklist. The goal is catching real bugs, not inflating
+the test count.
+
+## Dependency management
+
+Versions in `package.json` are exact — no `^` or `~`. `.npmrc` sets `save-exact=true`, so future
+`pnpm add` calls stay exact without anyone remembering `-E`.
 
 ## Teardown gotcha
 

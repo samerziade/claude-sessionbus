@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createBrokerCore, type Conn } from './broker.ts'
-import type { Frame } from './protocol.ts'
 import type { ChannelMessage } from '../../bus/src/message.ts'
+import { type Conn, createBrokerCore } from './broker.ts'
+import type { Frame } from './protocol.ts'
 
 function fakeConn(): Conn & { sent: Frame[] } {
 	const sent: Frame[] = []

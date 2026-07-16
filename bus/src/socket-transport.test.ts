@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { startBroker, type BrokerServer } from '../../broker/src/server.ts'
+import { type BrokerServer, startBroker } from '../../broker/src/server.ts'
 import type { ChannelMessage } from './message.ts'
 import { createSocketTransport } from './socket-transport.ts'
 
