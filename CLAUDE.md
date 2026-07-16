@@ -1,7 +1,8 @@
 # CLAUDE.md
 
-Guidance for Claude Code (and other AI agents) working in this repo. Read `HANDOFF.md`
-first for the full design brief — this file is the fast, current, source-of-truth orientation.
+Guidance for Claude Code (and other AI agents) working in this repo — the fast, current,
+source-of-truth orientation. The full design brief lives in `docs/superpowers/` and the
+archived `sessionbus-channel-mcp` OpenSpec change.
 
 ## What this is
 
@@ -14,8 +15,7 @@ Status: complete MVP. **47 tests passing.** Nothing is on npm; it runs locally.
 
 ## Layout
 
-The package lives in **`bus/`** (the `HANDOFF.md` still calls it `sessionbus/` — it was renamed;
-trust the filesystem). Source is `bus/src/*.ts`, each module paired with a `*.test.ts`:
+The package lives in **`bus/`**. Source is `bus/src/*.ts`, each module paired with a `*.test.ts`:
 
 | Module        | Purpose                                                                            | Purity       |
 | ------------- | ---------------------------------------------------------------------------------- | ------------ |
@@ -98,7 +98,7 @@ transport, notify, now? }`) — testable without stdio; repoint discovery/transp
 
 ## The mission (what the owner wants next)
 
-Full detail in `HANDOFF.md` §Goals. In priority order:
+In priority order:
 
 1. **Generalize** — today identity is hardcoded to the `pm`/`worker`/`epic` convention
    (`identity.ts` regexes, `address.ts` aliases). Make the core generic session-to-session
@@ -127,9 +127,6 @@ When writing or editing any Markdown (`README.md`, `CLAUDE.md`, `docs/**`, etc.)
     M -- watch + deliver --> B[Session B\nsessionbus]
     B -- channel event --> C[Session B context]
   ```
-
-  (`HANDOFF.md` predates this convention and still uses ASCII diagrams — leave it as-is unless
-  you're actively revising it, then convert.)
 
 ## Working style in this repo
 
