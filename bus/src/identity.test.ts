@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSessionName, resolveIdentity, type SessionEntry } from './identity.ts'
+import { parseSessionName, resolveIdentity, resolveSelf, type SessionEntry } from './identity.ts'
 
 describe('parseSessionName', () => {
 	it('recognizes a PM session', () => {
@@ -46,5 +46,54 @@ describe('resolveIdentity', () => {
 
 	it('returns null when no entry matches', () => {
 		expect(resolveIdentity('zzz', entries)).toBeNull()
+	})
+})
+
+describe('resolveSelf', () => {
+	// Mirrors a real `claude --resume` launch: Claude Code mints a throwaway session id at
+	// process start, hands it to the MCP server via CLAUDE_CODE_SESSION_ID, then swaps in the
+	// resumed conversation's real id and rewrites the registry. Only the pid stays constant.
+	const RESUMED: SessionEntry = { sessionId: 'f37a1b2c', pid: 22618, name: 'epic:1081' }
+	const OTHER: SessionEntry = { sessionId: '338a3fa0', pid: 23047, name: '1087 epic:1081' }
+	const STALE_ENV_ID = '13cdbad7'
+
+	it('identifies the session by pid when the env session id was discarded by --resume', () => {
+		expect(resolveSelf(22618, STALE_ENV_ID, [RESUMED, OTHER])).toEqual({
+			sessionId: 'f37a1b2c',
+			name: 'epic:1081',
+			role: 'pm',
+			epic: '1081'
+		})
+	})
+
+	it('prefers the pid match over an env id that resolves to a different session', () => {
+		const ghost: SessionEntry = { sessionId: STALE_ENV_ID, pid: 999, name: 'main-f4' }
+		expect(resolveSelf(22618, STALE_ENV_ID, [ghost, RESUMED])).toMatchObject({
+			sessionId: 'f37a1b2c',
+			name: 'epic:1081'
+		})
+	})
+
+	it('falls back to the env session id when no entry carries our pid', () => {
+		expect(resolveSelf(555, '338a3fa0', [RESUMED, OTHER])).toMatchObject({
+			sessionId: '338a3fa0',
+			role: 'worker',
+			issue: '1087'
+		})
+	})
+
+	it('returns null when neither the pid nor the env id matches an entry', () => {
+		expect(resolveSelf(555, 'nope', [RESUMED, OTHER])).toBeNull()
+	})
+
+	it('returns null when there is no env id and no pid match', () => {
+		expect(resolveSelf(555, undefined, [RESUMED])).toBeNull()
+	})
+
+	it('re-parses the name on each call so a post-launch rename is picked up', () => {
+		const before = resolveSelf(22618, STALE_ENV_ID, [{ ...RESUMED, name: 'main-f4' }])
+		const after = resolveSelf(22618, STALE_ENV_ID, [RESUMED])
+		expect(before).toMatchObject({ name: 'main-f4', role: 'none' })
+		expect(after).toMatchObject({ name: 'epic:1081', role: 'pm', epic: '1081' })
 	})
 })

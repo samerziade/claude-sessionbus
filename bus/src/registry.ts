@@ -82,6 +82,35 @@ export function removeBeacon(channelsHome: string, sessionId: string): void {
 	rmSync(join(presentDir(channelsHome), `${sessionId}.json`), { force: true })
 }
 
+export interface BeaconKeeper {
+	/** Publish the current identity, re-keying (and cleaning up) if the session id changed. */
+	sync: (beacon: Beacon) => void
+	/** Remove the beacon we currently own, if any. */
+	remove: () => void
+}
+
+/**
+ * Owns this process's presence beacon across identity changes.
+ *
+ * Our identity is not settled when we start: a `--resume` launch rewrites the registry
+ * milliseconds after spawning us, so the first beacon we publish can carry a session id that
+ * Claude Code is about to discard. Re-syncing moves the beacon to the live id and deletes the
+ * old file — an orphan there would advertise a session that peers can never reach.
+ */
+export function createBeaconKeeper(channelsHome: string): BeaconKeeper {
+	let key: string | undefined
+	return {
+		sync(beacon: Beacon): void {
+			if (key !== undefined && key !== beacon.sessionId) removeBeacon(channelsHome, key)
+			writeBeacon(channelsHome, beacon)
+			key = beacon.sessionId
+		},
+		remove(): void {
+			if (key !== undefined) removeBeacon(channelsHome, key)
+		}
+	}
+}
+
 /** Read all beacons, deleting any whose owning process is gone. */
 export function readBeacons(channelsHome: string): Beacon[] {
 	const dir = presentDir(channelsHome)

@@ -32,7 +32,11 @@ export type SendResult =
 	| { ok: false; reason: string; candidates?: { sessionId: string; name: string }[] }
 
 export interface HandlerDeps {
-	self: PeerIdentity
+	/**
+	 * Resolved per call, never cached: a session can be renamed at any point after we start, and
+	 * a `--resume` launch rewrites the registry milliseconds after spawning us.
+	 */
+	self: () => PeerIdentity
 	channelsHome: string
 	sessionsDir: string
 	transport: Transport
@@ -42,11 +46,12 @@ export interface HandlerDeps {
 
 /** Peers that are both in the registry and have a live presence beacon (excluding self). */
 export function livePeers(deps: HandlerDeps): PeerIdentity[] {
+	const self = deps.self()
 	const entries = readSessionEntries(deps.sessionsDir)
 	const present = new Set(readBeacons(deps.channelsHome).map((b) => b.sessionId))
 	const peers: PeerIdentity[] = []
 	for (const entry of entries) {
-		if (entry.sessionId === deps.self.sessionId) continue
+		if (entry.sessionId === self.sessionId) continue
 		if (!present.has(entry.sessionId)) continue
 		const id = resolveIdentity(entry.sessionId, [entry])
 		if (id) peers.push(id)
@@ -70,14 +75,15 @@ export function createHandlers(deps: HandlerDeps) {
 	const now = deps.now ?? (() => Date.now())
 
 	function whoami(): PeerIdentity {
-		return deps.self
+		return deps.self()
 	}
 
 	function listPeers(args: { scope?: 'epic' | 'all' }): PeerListEntry[] {
-		const scope = args.scope ?? (deps.self.epic ? 'epic' : 'all')
+		const self = deps.self()
+		const scope = args.scope ?? (self.epic ? 'epic' : 'all')
 		const entries = readSessionEntries(deps.sessionsDir)
 		let peers = livePeers(deps)
-		if (scope === 'epic' && deps.self.epic) peers = peers.filter((p) => p.epic === deps.self.epic)
+		if (scope === 'epic' && self.epic) peers = peers.filter((p) => p.epic === self.epic)
 		return peers.map((p) => {
 			const e = entryFor(p.sessionId, entries)
 			return {
@@ -95,8 +101,9 @@ export function createHandlers(deps: HandlerDeps) {
 	}
 
 	function sendMessage(args: { to: string; text: string }): SendResult {
+		const self = deps.self()
 		const peers = livePeers(deps)
-		const resolution = resolveTo(args.to, deps.self, peers)
+		const resolution = resolveTo(args.to, self, peers)
 		if (!resolution.ok) {
 			return {
 				ok: false,
@@ -106,10 +113,10 @@ export function createHandlers(deps: HandlerDeps) {
 		}
 
 		const from: MessageFrom = {
-			sessionId: deps.self.sessionId,
-			name: deps.self.name,
-			epic: deps.self.epic,
-			role: deps.self.role
+			sessionId: self.sessionId,
+			name: self.name,
+			epic: self.epic,
+			role: self.role
 		}
 		const to =
 			resolution.kind === 'epic'
@@ -136,7 +143,9 @@ export function createHandlers(deps: HandlerDeps) {
 	}
 
 	function start(): () => void {
-		return deps.transport.watch(deps.self.sessionId, (msg) => {
+		// The inbox subscription is keyed once: unlike the name, the registry session id is stable
+		// for the life of the session.
+		return deps.transport.watch(deps.self().sessionId, (msg) => {
 			deps.notify(buildChannelNotification(msg)).catch((err) => {
 				process.stderr.write(
 					`sessionbus: failed to deliver message ${msg.id}: ${err instanceof Error ? err.message : String(err)}\n`

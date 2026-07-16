@@ -5,14 +5,17 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { createHandlers } from './handlers.ts'
-import { type PeerIdentity, resolveIdentity } from './identity.ts'
-import { readSessionEntries, refreshBeacon, removeBeacon, writeBeacon } from './registry.ts'
+import { type PeerIdentity, resolveSelf } from './identity.ts'
+import { createBeaconKeeper, readSessionEntries } from './registry.ts'
 import { createTransport } from './transport.ts'
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR ?? join(homedir(), '.claude', 'sessions')
 const CHANNELS_HOME = process.env.CHANNELS_HOME ?? join(homedir(), '.claude', 'channels')
 const BROKER_SOCK = process.env.BROKER_SOCK ?? join(CHANNELS_HOME, 'broker.sock')
 const BEACON_REFRESH_MS = 30_000
+/** A `--resume` launch rewrites the registry just after spawning us; re-publish once it lands. */
+const BEACON_SETTLE_MS = 1_000
+const UNKNOWN = 'unknown'
 
 const INSTRUCTIONS =
 	'Messages tagged <channel source="sessionbus" ...> are from ANOTHER Claude Code session on this machine. ' +
@@ -30,13 +33,16 @@ async function main(): Promise<void> {
 		)
 	}
 
-	// Resolve identity from the registry; fall back to a name-less peer if absent.
-	const entries = readSessionEntries(SESSIONS_DIR)
-	const self: PeerIdentity = (sessionId ? resolveIdentity(sessionId, entries) : null) ?? {
-		sessionId: sessionId ?? 'unknown',
-		name: sessionId ?? 'unknown',
-		role: 'none'
-	}
+	// Resolved fresh on every use, never cached: our identity is not settled at startup (a
+	// `--resume` launch rewrites the registry moments after spawning us) and the session can be
+	// renamed at any time afterwards. Keyed on our parent — the Claude Code process — because
+	// CLAUDE_CODE_SESSION_ID can name a session that resume discarded.
+	const self = (): PeerIdentity =>
+		resolveSelf(process.ppid, sessionId, readSessionEntries(SESSIONS_DIR)) ?? {
+			sessionId: sessionId ?? UNKNOWN,
+			name: sessionId ?? UNKNOWN,
+			role: 'none'
+		}
 
 	const server = new Server(
 		{ name: 'sessionbus', version: '0.0.1' },
@@ -131,26 +137,36 @@ async function main(): Promise<void> {
 
 	await server.connect(new StdioServerTransport())
 
-	// Presence beacon: announce, refresh, and clean up on exit.
-	if (sessionId) {
-		writeBeacon(CHANNELS_HOME, {
-			sessionId,
+	// Presence beacon: announce under our live registry id, re-key as our identity settles, and
+	// clean up on exit. Peers join their registry read against these beacons on session id, so a
+	// beacon keyed by anything the registry does not publish makes us unreachable.
+	const beacons = createBeaconKeeper(CHANNELS_HOME)
+	const startedAt = Date.now()
+	const publish = () => {
+		const me = self()
+		if (me.sessionId === UNKNOWN) return
+		beacons.sync({
+			sessionId: me.sessionId,
 			pid: process.pid,
-			name: self.name,
-			role: self.role,
-			epic: self.epic,
-			startedAt: Date.now()
+			name: me.name,
+			role: me.role,
+			epic: me.epic,
+			startedAt
 		})
-		const refresh = setInterval(() => refreshBeacon(CHANNELS_HOME, sessionId), BEACON_REFRESH_MS)
-		refresh.unref?.()
-		const cleanup = () => {
-			removeBeacon(CHANNELS_HOME, sessionId)
-			process.exit(0)
-		}
-		process.on('SIGINT', cleanup)
-		process.on('SIGTERM', cleanup)
-		process.on('exit', () => removeBeacon(CHANNELS_HOME, sessionId))
 	}
+
+	publish()
+	setTimeout(publish, BEACON_SETTLE_MS).unref?.()
+	const refresh = setInterval(publish, BEACON_REFRESH_MS)
+	refresh.unref?.()
+
+	const cleanup = () => {
+		beacons.remove()
+		process.exit(0)
+	}
+	process.on('SIGINT', cleanup)
+	process.on('SIGTERM', cleanup)
+	process.on('exit', () => beacons.remove())
 
 	// Begin watching our inbox -> inject incoming messages as channel events.
 	handlers.start()

@@ -10,7 +10,7 @@ over stdio, that lets separate Claude Code sessions on the same machine **discov
 each other**. A session _sends_ by calling a tool; it _receives_ as a `<channel …>` event
 injected into its context, which drives a turn even when the session is idle.
 
-Status: complete MVP. **72 tests passing** (55 in `bus`, 17 in `broker`). Nothing is on npm; it
+Status: complete MVP. **86 tests passing** (69 in `bus`, 17 in `broker`). Nothing is on npm; it
 runs locally.
 
 ## Layout
@@ -155,18 +155,38 @@ transport, notify, now? }`) — testable without stdio; repoint discovery/transp
 
 ## Known open items (deliberate/deferred — trust the code, not the plan doc)
 
-1. **Frozen self-identity (important).** `index.ts` resolves `self` once at startup. A session
-   renamed _after_ its sessionbus started (the PM case) keeps a stale identity — its own `whoami`,
-   outgoing `from`, and `resolveTo('pm'|'epic')` are wrong until restart. Peers still reach it fine
-   (`livePeers` re-derives every peer from the fresh registry each call). Fix: re-derive `self`
-   from the registry on each `send_message`/`list_peers`/`whoami`. Do this as part of Goal 1.
-2. **Final-hop can be at-most-once (deferred).** `poll()` archives to `consumed/` _before_ `notify`
+1. **Final-hop can be at-most-once (deferred).** `poll()` archives to `consumed/` _before_ `notify`
    runs; if `notify` rejects, the message won't retry (recoverable by hand from `consumed/`). The
    daemon design fixes this for free (ack before archive).
-3. **`readBeacons` has no shape guard (minor).** It casts `JSON.parse(...) as Beacon` unlike
+2. **`readBeacons` has no shape guard (minor).** It casts `JSON.parse(...) as Beacon` unlike
    `readSessionEntries`'s `isSessionEntry`. Add an `isBeacon` guard.
-4. **Minor:** epic-broadcast `to.value` stores the raw `to` string but nothing reads it; a couple
+3. **Minor:** epic-broadcast `to.value` stores the raw `to` string but nothing reads it; a couple
    of test-coverage gaps (`epic:abc` → none; archival-failure redelivery).
+
+## Identity gotcha: never trust `CLAUDE_CODE_SESSION_ID`
+
+**A session's id is not the id we are launched with.** `claude --resume` mints a throwaway session
+id at process launch, exports it to MCP servers as `CLAUDE_CODE_SESSION_ID`, then swaps in the
+resumed conversation's real id and rewrites the registry. The env var keeps naming the discarded
+id — which has no registry entry and no transcript, and which the session never answers to.
+
+Observed live: six `--resume`d sessions each held an env id (`13cdbad7…`) disjoint from the id
+their registry entry published (`f37a1b2c…`). Because beacons were keyed by the env id and
+`livePeers` joins registry↔beacons on session id, **the two sets never intersected and
+`list_peers` returned `[]` for every session, at every scope.**
+
+The rules that follow:
+
+- **Key identity on `process.ppid`, not the env id.** Our parent is the Claude Code process, and
+  registry files are named `<pid>.json`. That pid is stable across the resume swap. `resolveSelf`
+  in `identity.ts` does this, keeping the env id only as a fallback for spawn paths where our
+  parent is not the session (a shell wrapper).
+- **Never cache `self`.** Identity is unsettled at startup — the resume rewrite lands milliseconds
+  after we spawn — and a session can be renamed at any time after. `HandlerDeps.self` is a
+  `() => PeerIdentity` resolved per call for exactly this reason.
+- **The beacon must follow the identity.** `createBeaconKeeper` re-keys and deletes the old file
+  when the id changes; a beacon keyed by anything the registry does not publish makes us
+  invisible, and a leftover one advertises a session nobody can reach.
 
 ## The mission (what the owner wants next)
 
@@ -175,7 +195,8 @@ In priority order:
 1. **Generalize** — today identity is hardcoded to the `pm`/`worker`/`epic` convention
    (`identity.ts` regexes, `address.ts` aliases). Make the core generic session-to-session
    messaging with grouping as a _pluggable_ convention; keep the epic regexes as the default
-   strategy. Fix open item #1 here.
+   strategy. Whatever replaces `parseSessionName`, keep resolving *which* entry is ours via
+   `resolveSelf`/ppid — see the identity gotcha above.
 2. **Install globally, properly** — user-level MCP registration in `~/.claude.json`, an ergonomic
    launch alias, ideally a Claude Code plugin. A `sessionbus doctor` subcommand would help.
 3. **Build the daemon transport** — a unix-socket broker behind the existing `Transport` interface,

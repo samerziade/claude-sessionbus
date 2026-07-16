@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
 	type Beacon,
+	createBeaconKeeper,
 	isPidAlive,
 	readBeacons,
 	readSessionEntries,
@@ -112,5 +113,63 @@ describe('beacons', () => {
 		const read = readBeacons(channelsHome)
 		expect(read.map((b) => b.sessionId)).toEqual(['live'])
 		expect(existsSync(join(channelsHome, 'present', 'corrupt.json'))).toBe(true)
+	})
+})
+
+describe('createBeaconKeeper', () => {
+	const beacon = (sessionId: string, name: string): Beacon => ({
+		sessionId,
+		pid: process.pid,
+		name,
+		role: 'none',
+		startedAt: 1
+	})
+
+	function keys(): string[] {
+		return readdirSync(join(channelsHome, 'present')).sort()
+	}
+
+	it('publishes a beacon under the given session id', () => {
+		createBeaconKeeper(channelsHome).sync(beacon('f37a1b2c', 'epic:1081'))
+		expect(keys()).toEqual(['f37a1b2c.json'])
+	})
+
+	it('re-keys the beacon when --resume swaps the session id, leaving no orphan', () => {
+		// The registry still held the throwaway launch identity when we first published.
+		const keeper = createBeaconKeeper(channelsHome)
+		keeper.sync(beacon('13cdbad7', 'main-f4'))
+		expect(keys()).toEqual(['13cdbad7.json'])
+
+		// The resumed identity lands moments later; the stale key must not linger as a ghost peer.
+		keeper.sync(beacon('f37a1b2c', 'epic:1081'))
+		expect(keys()).toEqual(['f37a1b2c.json'])
+	})
+
+	it('refreshes name and role in place when the session id is unchanged', () => {
+		const keeper = createBeaconKeeper(channelsHome)
+		keeper.sync(beacon('f37a1b2c', 'main-f4'))
+		keeper.sync({ ...beacon('f37a1b2c', 'epic:1081'), role: 'pm', epic: '1081' })
+
+		expect(keys()).toEqual(['f37a1b2c.json'])
+		const [read] = readBeacons(channelsHome)
+		expect(read).toMatchObject({ name: 'epic:1081', role: 'pm', epic: '1081' })
+	})
+
+	it('remove() deletes the beacon it currently owns', () => {
+		const keeper = createBeaconKeeper(channelsHome)
+		keeper.sync(beacon('13cdbad7', 'main-f4'))
+		keeper.sync(beacon('f37a1b2c', 'epic:1081'))
+		keeper.remove()
+		expect(keys()).toEqual([])
+	})
+
+	it('remove() before any sync is a no-op rather than a throw', () => {
+		expect(() => createBeaconKeeper(channelsHome).remove()).not.toThrow()
+	})
+
+	it('keeps separate keepers independent (no shared module state)', () => {
+		createBeaconKeeper(channelsHome).sync(beacon('aaa', 'epic:1'))
+		createBeaconKeeper(channelsHome).sync(beacon('bbb', 'epic:2'))
+		expect(keys()).toEqual(['aaa.json', 'bbb.json'])
 	})
 })

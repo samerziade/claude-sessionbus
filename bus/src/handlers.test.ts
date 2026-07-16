@@ -63,7 +63,7 @@ function seedRegistry() {
 
 function deps(self: PeerIdentity, notify = vi.fn().mockResolvedValue(undefined)): HandlerDeps {
 	return {
-		self,
+		self: () => self,
 		channelsHome: home,
 		sessionsDir,
 		transport: createFileMailbox(home),
@@ -82,6 +82,29 @@ beforeEach(() => {
 describe('whoami', () => {
 	it('returns the caller identity', () => {
 		expect(createHandlers(deps(workerSelf)).whoami()).toEqual(workerSelf)
+	})
+
+	it('re-derives identity per call so a rename after startup is reflected', () => {
+		// A session launched before it was named reads as a plain peer; the operator renames it
+		// to "1234 epic:2345" seconds later. Identity must not be frozen at startup.
+		const unnamed: PeerIdentity = { sessionId: 'wkr-1234', name: 'main-f4', role: 'none' }
+		let current = unnamed
+		const h = createHandlers({ ...deps(unnamed), self: () => current })
+
+		expect(h.whoami()).toMatchObject({ name: 'main-f4', role: 'none' })
+		current = workerSelf
+		expect(h.whoami()).toMatchObject({ name: '1234 epic:2345', role: 'worker', epic: '2345' })
+	})
+
+	it('routes "pm" correctly only after a rename gives us an epic', () => {
+		const unnamed: PeerIdentity = { sessionId: 'wkr-1234', name: 'main-f4', role: 'none' }
+		let current = unnamed
+		const h = createHandlers({ ...deps(unnamed), self: () => current })
+
+		// no epic yet -> "pm" is unroutable
+		expect(h.sendMessage({ to: 'pm', text: 'early' })).toMatchObject({ ok: false })
+		current = workerSelf
+		expect(h.sendMessage({ to: 'pm', text: 'later' })).toMatchObject({ ok: true, count: 1 })
 	})
 })
 

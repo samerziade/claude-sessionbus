@@ -41,3 +41,23 @@ export function resolveIdentity(sessionId: string, entries: SessionEntry[]): Pee
 	const parsed = parseSessionName(entry.name)
 	return { sessionId: entry.sessionId, name: entry.name, ...parsed }
 }
+
+/**
+ * Derive our own identity from the registry, keyed on the pid of the Claude Code process that
+ * spawned us (our parent) rather than CLAUDE_CODE_SESSION_ID.
+ *
+ * `claude --resume` mints a throwaway session id at launch, exports it to MCP servers, then
+ * swaps in the resumed conversation's real id and rewrites the registry — so the env id can name
+ * a session that never existed. The pid is stable across that swap, and registry entries are
+ * keyed by it. The env id remains a fallback for spawn paths where our parent is not the session
+ * (a shell wrapper, say), where it is the only signal we have.
+ */
+export function resolveSelf(
+	ppid: number,
+	envSessionId: string | undefined,
+	entries: SessionEntry[]
+): PeerIdentity | null {
+	const byPid = entries.find((e) => e.pid === ppid)
+	if (byPid) return resolveIdentity(byPid.sessionId, [byPid])
+	return envSessionId ? resolveIdentity(envSessionId, entries) : null
+}
