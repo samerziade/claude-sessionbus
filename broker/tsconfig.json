@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"lib": ["ESNext"],
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"types": ["node"],
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"incremental": true,
+		"tsBuildInfoFile": "./tsconfig.tsbuildinfo"
+	},
+	"include": ["src"],
+	"exclude": ["node_modules"]
+}

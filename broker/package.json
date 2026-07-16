@@ -1,0 +1,17 @@
+{
+	"name": "broker",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "sessionbus broker daemon — unix-socket message router",
+	"scripts": {
+		"test": "vitest run",
+		"start": "node src/index.ts",
+		"lint": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@types/node": "25.9.4",
+		"typescript": "6.0.3",
+		"vitest": "4.1.9"
+	}
+}
