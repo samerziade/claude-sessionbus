@@ -48,6 +48,23 @@ export function daemonStatus(paths: DaemonPaths): DaemonStatus {
 	return { running, pid: running ? pid : undefined, socketPath: paths.socketPath }
 }
 
+/**
+ * Record the pid of the running broker (atomic: .tmp + rename).
+ * Written by `startDaemon` for its child and by the foreground broker for
+ * itself, so `daemonStatus`/`stopDaemon` work however the broker was started
+ * — `broker start`, `broker --foreground`, or a launchd agent.
+ */
+export function writePid(paths: DaemonPaths, pid: number): void {
+	mkdirSync(dirname(paths.pidPath), { recursive: true })
+	const tmp = `${paths.pidPath}.tmp`
+	writeFileSync(tmp, String(pid))
+	renameSync(tmp, paths.pidPath)
+}
+
+export function removePid(paths: DaemonPaths): void {
+	rmSync(paths.pidPath, { force: true })
+}
+
 export function startDaemon(paths: DaemonPaths, entryScript: string): void {
 	if (daemonStatus(paths).running) throw new Error('broker already running')
 	const channelsHome = dirname(paths.socketPath)
@@ -60,9 +77,9 @@ export function startDaemon(paths: DaemonPaths, entryScript: string): void {
 	})
 	child.unref()
 	closeSync(out)
-	const tmp = `${paths.pidPath}.tmp`
-	writeFileSync(tmp, String(child.pid))
-	renameSync(tmp, paths.pidPath)
+	// Written here too (not just by the child) so `status` right after `start`
+	// never races the child's own write.
+	if (child.pid !== undefined) writePid(paths, child.pid)
 }
 
 export async function stopDaemon(paths: DaemonPaths): Promise<void> {
