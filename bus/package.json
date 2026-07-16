@@ -1,0 +1,20 @@
+{
+	"name": "bus",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Claude Code channel MCP server connecting sessions",
+	"scripts": {
+		"test": "vitest run",
+		"start": "node src/index.ts",
+		"lint": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "1.29.0"
+	},
+	"devDependencies": {
+		"@types/node": "25.9.4",
+		"typescript": "6.0.3",
+		"vitest": "4.1.9"
+	}
+}

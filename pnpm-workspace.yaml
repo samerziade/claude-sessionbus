@@ -1,0 +1,8 @@
+packages:
+  - bus
+
+allowBuilds:
+  esbuild: true
+
+onlyBuiltDependencies:
+  - esbuild
