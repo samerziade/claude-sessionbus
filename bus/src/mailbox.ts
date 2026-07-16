@@ -18,6 +18,14 @@ export interface Transport {
 	poll(ownSessionId: string): ChannelMessage[]
 	/** Poll continuously (interval + fs.watch); returns a stop function. */
 	watch(ownSessionId: string, onMessage: (msg: ChannelMessage) => void): () => void
+	/**
+	 * Point an active `watch` at a different session id.
+	 *
+	 * Our own id is not settled when we subscribe: a `--resume` launch rewrites the registry
+	 * moments after spawning us. Peers address us by the id our beacon advertises, so a
+	 * subscription left on the startup id makes us silently unreachable. No-op before `watch`.
+	 */
+	rekey(ownSessionId: string): void
 }
 
 const POLL_MS = 1000
@@ -70,29 +78,54 @@ export function createFileMailbox(channelsHome: string): Transport {
 		return out
 	}
 
+	let watched: string | undefined // the id `watch` is currently draining, if any
+	let watcher: FSWatcher | undefined
+	let observeCurrent: (() => void) | undefined // re-points the watcher at `watched`
+	let stopped = false
+
 	function watch(ownSessionId: string, onMessage: (msg: ChannelMessage) => void): () => void {
-		const dir = inboxDir(ownSessionId)
-		mkdirSync(dir, { recursive: true })
+		watched = ownSessionId
 
 		const drain = () => {
-			for (const m of poll(ownSessionId)) onMessage(m)
+			if (watched === undefined || stopped) return
+			for (const m of poll(watched)) onMessage(m)
 		}
 
-		drain() // pick up anything already queued (offline messages)
+		// fs.watch is bound to one directory, so re-point it whenever the id changes; the
+		// interval below is the safety net either way.
+		const observe = () => {
+			watcher?.close()
+			watcher = undefined
+			if (watched === undefined) return
+			const dir = inboxDir(watched)
+			mkdirSync(dir, { recursive: true })
+			try {
+				watcher = fsWatch(dir, () => drain()) // low-latency nudge
+			} catch {
+				// fs.watch unsupported here; interval still covers us
+			}
+			drain() // pick up anything already queued (offline messages)
+		}
+
+		observeCurrent = observe
+		observe()
 		const interval = setInterval(drain, POLL_MS)
 
-		let watcher: FSWatcher | undefined
-		try {
-			watcher = fsWatch(dir, () => drain()) // low-latency nudge; poll is the safety net
-		} catch {
-			// fs.watch unsupported here; interval still covers us
-		}
-
 		return () => {
+			stopped = true
 			clearInterval(interval)
 			watcher?.close()
+			watcher = undefined
 		}
 	}
 
-	return { send, poll, watch }
+	function rekey(ownSessionId: string): void {
+		if (watched === ownSessionId) return
+		watched = ownSessionId
+		// Re-point the watcher and sweep the corrected inbox: peers have been addressing our
+		// beacon id all along, so messages may already be waiting there.
+		if (!stopped) observeCurrent?.()
+	}
+
+	return { send, poll, watch, rekey }
 }

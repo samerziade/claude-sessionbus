@@ -26,6 +26,13 @@ export function createBrokerCore(opts: BrokerCoreOptions = {}): BrokerCore {
 	const queues = new Map<string, ChannelMessage[]>() // sessionId -> pending
 
 	function register(conn: Conn, sessionId: string): void {
+		// A conn may register more than once: a session's id is not settled when its bus starts
+		// (a `--resume` launch rewrites the registry moments later), so it corrects itself here.
+		// Drop the previous binding, or the discarded id keeps resolving to us and outlives the
+		// conn — but only if we still own it; another session may have taken it over since.
+		const prev = sessionOf.get(conn)
+		if (prev !== undefined && prev !== sessionId && conns.get(prev) === conn) conns.delete(prev)
+
 		conns.set(sessionId, conn)
 		sessionOf.set(conn, sessionId)
 		const q = queues.get(sessionId)

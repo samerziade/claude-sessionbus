@@ -96,6 +96,15 @@ export function createSocketTransport(opts: SocketTransportOptions): Transport {
 		enqueue({ type: 'send', to: recipientSessionId, msg })
 	}
 
+	function rekey(sessionId: string): void {
+		if (ownSessionId === sessionId) return
+		ownSessionId = sessionId
+		// Before 'connect' there is nothing to correct: the register frame is built from
+		// ownSessionId when the socket opens, and on every reconnect after that.
+		if (!connected || !socket) return
+		socket.write(encodeFrame({ type: 'register', sessionId, protocolVersion: PROTOCOL_VERSION }))
+	}
+
 	function poll(): ChannelMessage[] {
 		return []
 	}
@@ -114,5 +123,5 @@ export function createSocketTransport(opts: SocketTransportOptions): Transport {
 		}
 	}
 
-	return { send, poll, watch }
+	return { send, poll, watch, rekey }
 }

@@ -87,3 +87,61 @@ describe('broker core', () => {
 		])
 	})
 })
+
+describe('re-registration (identity settling after --resume)', () => {
+	it('routes to the corrected id after a conn re-registers', () => {
+		const core = createBrokerCore()
+		const pm = fakeConn()
+		core.register(pm, 'throwaway')
+		core.register(pm, 'real') // registry rewrite landed; we correct our id
+
+		core.route('real', msg('m1'))
+		expect(pm.sent).toEqual([{ type: 'deliver', msg: msg('m1') }])
+	})
+
+	it('drops the stale binding so the old id no longer resolves to us', () => {
+		const core = createBrokerCore()
+		const pm = fakeConn()
+		core.register(pm, 'throwaway')
+		core.register(pm, 'real')
+
+		expect(core.connectedCount()).toBe(1) // not 2: 'throwaway' must not linger
+
+		// A message to the discarded id must queue for a future owner, not reach us.
+		core.route('throwaway', msg('ghost'))
+		expect(pm.sent).toEqual([])
+	})
+
+	it('flushes messages queued under the corrected id while we were mis-registered', () => {
+		const core = createBrokerCore()
+		const pm = fakeConn()
+		core.register(pm, 'throwaway')
+		core.route('real', msg('sent-while-misregistered')) // peers already address the beacon id
+		expect(pm.sent).toEqual([])
+
+		core.register(pm, 'real')
+		expect(pm.sent).toEqual([{ type: 'deliver', msg: msg('sent-while-misregistered') }])
+	})
+
+	it('disconnect after a re-key leaves no route behind', () => {
+		const core = createBrokerCore()
+		const pm = fakeConn()
+		core.register(pm, 'throwaway')
+		core.register(pm, 'real')
+		core.disconnect(pm)
+		expect(core.connectedCount()).toBe(0)
+	})
+
+	it('does not disturb another session that legitimately owns the old id', () => {
+		const core = createBrokerCore()
+		const pm = fakeConn()
+		const other = fakeConn()
+		core.register(pm, 'shared')
+		core.register(other, 'shared') // other takes over the id
+		core.register(pm, 'real') // pm re-keys; must not evict other's binding
+
+		core.route('shared', msg('m1'))
+		expect(other.sent).toEqual([{ type: 'deliver', msg: msg('m1') }])
+		expect(core.connectedCount()).toBe(2)
+	})
+})

@@ -10,7 +10,7 @@ over stdio, that lets separate Claude Code sessions on the same machine **discov
 each other**. A session _sends_ by calling a tool; it _receives_ as a `<channel …>` event
 injected into its context, which drives a turn even when the session is idle.
 
-Status: complete MVP. **86 tests passing** (69 in `bus`, 17 in `broker`). Nothing is on npm; it
+Status: complete MVP. **101 tests passing** (79 in `bus`, 22 in `broker`). Nothing is on npm; it
 runs locally.
 
 ## Layout
@@ -146,7 +146,7 @@ may point at a shell wrapper).
 ## Architecture seams (where change is meant to happen)
 
 - **`Transport` interface in `mailbox.ts`** is the seam for the future daemon. Everything above it
-  (`handlers.ts`, `index.ts`) depends only on `{ send, poll, watch }`. Swap the implementation,
+  (`handlers.ts`, `index.ts`) depends only on `{ send, poll, watch, rekey }`. Swap the implementation,
   keep the rest.
 - **`handlers.ts` is dependency-injected** (`HandlerDeps { self, channelsHome, sessionsDir,
 transport, notify, now? }`) — testable without stdio; repoint discovery/transport cleanly.
@@ -187,6 +187,18 @@ The rules that follow:
 - **The beacon must follow the identity.** `createBeaconKeeper` re-keys and deletes the old file
   when the id changes; a beacon keyed by anything the registry does not publish makes us
   invisible, and a leftover one advertises a session nobody can reach.
+- **The beacon and the inbox subscription must always name the same id.** Peers discover us via
+  the beacon and address messages there; we only receive what is addressed to the id we
+  subscribed with. `index.ts`'s `publish()` moves both together (`beacons.sync` +
+  `transport.rekey`) for exactly this reason — never advance one without the other.
+
+**Why that last rule is load-bearing:** healing the beacon *alone* is worse than not healing it.
+Both wrong-but-equal means peers cannot see us and nothing is sent. Beacon healed + subscription
+frozen means peers see us, `send_message` returns `ok: true`, and the broker silently queues the
+message under an id nobody holds (`route()` queues unknown recipients — no log, no error). The
+sender is told it worked and the message is never delivered. That failure has been shipped once
+already; the paired `rekey` tests in `mailbox.test.ts` / `socket-transport.test.ts` and the
+re-registration tests in `broker.test.ts` exist to keep it dead.
 
 ## The mission (what the owner wants next)
 

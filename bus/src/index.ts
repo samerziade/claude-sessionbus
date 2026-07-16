@@ -142,6 +142,9 @@ async function main(): Promise<void> {
 	// beacon keyed by anything the registry does not publish makes us unreachable.
 	const beacons = createBeaconKeeper(CHANNELS_HOME)
 	const startedAt = Date.now()
+	// Our beacon and our inbox subscription must name the same session id: peers discover us via
+	// the beacon and address messages there, and the transport only delivers what is addressed to
+	// the id we subscribed with. Move them together, or we advertise an address we do not answer.
 	const publish = () => {
 		const me = self()
 		if (me.sessionId === UNKNOWN) return
@@ -153,9 +156,13 @@ async function main(): Promise<void> {
 			epic: me.epic,
 			startedAt
 		})
+		transport.rekey(me.sessionId)
 	}
 
+	// Subscribe before advertising, so we are already answering at whatever id we publish.
+	handlers.start() // watch our inbox -> inject incoming messages as channel events
 	publish()
+	// A `--resume` rewrite lands just after we start; catch it well before the slow refresh.
 	setTimeout(publish, BEACON_SETTLE_MS).unref?.()
 	const refresh = setInterval(publish, BEACON_REFRESH_MS)
 	refresh.unref?.()
@@ -167,9 +174,6 @@ async function main(): Promise<void> {
 	process.on('SIGINT', cleanup)
 	process.on('SIGTERM', cleanup)
 	process.on('exit', () => beacons.remove())
-
-	// Begin watching our inbox -> inject incoming messages as channel events.
-	handlers.start()
 }
 
 main().catch((err) => {

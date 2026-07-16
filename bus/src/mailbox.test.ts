@@ -90,3 +90,75 @@ describe('watch', () => {
 		expect(seen).not.toContain('cc-after')
 	})
 })
+
+describe('rekey (identity settling after --resume)', () => {
+	it('delivers to the corrected inbox after re-keying', async () => {
+		const mb = createFileMailbox(home)
+		const got: ChannelMessage[] = []
+		const stop = mb.watch('throwaway', (m) => got.push(m))
+
+		mb.rekey('real')
+		mb.send('real', msg('m1'))
+		await new Promise((r) => setTimeout(r, 1300))
+		stop()
+
+		expect(got.map((m) => m.id)).toEqual(['m1'])
+	})
+
+	it('drains messages peers left in the corrected inbox while we watched the wrong one', async () => {
+		const mb = createFileMailbox(home)
+		// Peers address our beacon id from the start; those land in an inbox we are not watching.
+		mb.send('real', msg('early'))
+
+		const got: ChannelMessage[] = []
+		const stop = mb.watch('throwaway', (m) => got.push(m))
+		await new Promise((r) => setTimeout(r, 50))
+		expect(got).toEqual([])
+
+		mb.rekey('real')
+		await new Promise((r) => setTimeout(r, 1300))
+		stop()
+
+		expect(got.map((m) => m.id)).toEqual(['early'])
+	})
+
+	it('stops draining the discarded inbox', async () => {
+		const mb = createFileMailbox(home)
+		const got: ChannelMessage[] = []
+		const stop = mb.watch('throwaway', (m) => got.push(m))
+		mb.rekey('real')
+
+		mb.send('throwaway', msg('ghost'))
+		mb.send('real', msg('m1'))
+		await new Promise((r) => setTimeout(r, 1300))
+		stop()
+
+		expect(got.map((m) => m.id)).toEqual(['m1'])
+	})
+
+	it('re-keying to the same id keeps delivering (no torn watcher)', async () => {
+		const mb = createFileMailbox(home)
+		const got: ChannelMessage[] = []
+		const stop = mb.watch('real', (m) => got.push(m))
+		mb.rekey('real')
+
+		mb.send('real', msg('m1'))
+		await new Promise((r) => setTimeout(r, 1300))
+		stop()
+
+		expect(got.map((m) => m.id)).toEqual(['m1'])
+	})
+
+	it('stop() after a rekey halts delivery', async () => {
+		const mb = createFileMailbox(home)
+		const got: ChannelMessage[] = []
+		const stop = mb.watch('throwaway', (m) => got.push(m))
+		mb.rekey('real')
+		stop()
+
+		mb.send('real', msg('m1'))
+		await new Promise((r) => setTimeout(r, 1300))
+
+		expect(got).toEqual([])
+	})
+})

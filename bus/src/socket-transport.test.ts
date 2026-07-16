@@ -109,3 +109,112 @@ describe('socket transport', () => {
 		expect(gotA[0]).toEqual(msg('m1', 'A'))
 	})
 })
+
+describe('rekey (identity settling after --resume)', () => {
+	it('receives on the corrected id after re-keying', async () => {
+		const socketPath = tempSocket()
+		const server = await startBroker({ socketPath })
+		cleanups.push(() => server.close())
+
+		const pm = createSocketTransport({ socketPath })
+		const worker = createSocketTransport({ socketPath })
+		const got: ChannelMessage[] = []
+		// The bus subscribes with whatever the registry held at startup: the throwaway id.
+		cleanups.push(pm.watch('throwaway', (m) => got.push(m)))
+		cleanups.push(worker.watch('worker', () => {}))
+		await waitFor(() => server.connectedCount() === 2)
+
+		pm.rekey('real') // the registry rewrite landed
+		await waitFor(() => server.connectedCount() === 2)
+
+		// Peers discover us by our beacon, which carries the corrected id.
+		worker.send('real', msg('m1', 'real'))
+		await waitFor(() => got.length === 1)
+		expect(got[0].id).toBe('m1')
+	})
+
+	it('re-keying before the socket connects registers only the corrected id', async () => {
+		const socketPath = tempSocket()
+		const server = await startBroker({ socketPath })
+		cleanups.push(() => server.close())
+
+		const pm = createSocketTransport({ socketPath })
+		const worker = createSocketTransport({ socketPath })
+		const got: ChannelMessage[] = []
+		cleanups.push(pm.watch('throwaway', (m) => got.push(m)))
+		pm.rekey('real') // beats the 'connect' event
+		cleanups.push(worker.watch('worker', () => {}))
+		await waitFor(() => server.connectedCount() === 2)
+
+		worker.send('real', msg('m1', 'real'))
+		await waitFor(() => got.length === 1)
+		expect(got[0].id).toBe('m1')
+	})
+
+	it('collects messages peers sent to the corrected id while we were mis-registered', async () => {
+		const socketPath = tempSocket()
+		const server = await startBroker({ socketPath })
+		cleanups.push(() => server.close())
+
+		const pm = createSocketTransport({ socketPath })
+		const worker = createSocketTransport({ socketPath })
+		const got: ChannelMessage[] = []
+		cleanups.push(pm.watch('throwaway', (m) => got.push(m)))
+		cleanups.push(worker.watch('worker', () => {}))
+		await waitFor(() => server.connectedCount() === 2)
+
+		worker.send('real', msg('early', 'real')) // broker queues it: nobody holds 'real' yet
+		await new Promise((r) => setTimeout(r, 50))
+		expect(got).toEqual([])
+
+		pm.rekey('real')
+		await waitFor(() => got.length === 1) // the queue flushes on register
+		expect(got[0].id).toBe('early')
+	})
+
+	it('no longer answers to the discarded id', async () => {
+		const socketPath = tempSocket()
+		const server = await startBroker({ socketPath })
+		cleanups.push(() => server.close())
+
+		const pm = createSocketTransport({ socketPath })
+		const worker = createSocketTransport({ socketPath })
+		const got: ChannelMessage[] = []
+		cleanups.push(pm.watch('throwaway', (m) => got.push(m)))
+		cleanups.push(worker.watch('worker', () => {}))
+		await waitFor(() => server.connectedCount() === 2)
+
+		pm.rekey('real')
+		await waitFor(() => server.connectedCount() === 2)
+
+		worker.send('throwaway', msg('ghost', 'throwaway'))
+		worker.send('real', msg('m1', 'real'))
+		await waitFor(() => got.length === 1)
+		await new Promise((r) => setTimeout(r, 80)) // give a stray delivery time to show up
+		expect(got.map((m) => m.id)).toEqual(['m1'])
+	})
+
+	it('keeps the corrected id across a reconnect', async () => {
+		const socketPath = tempSocket()
+		const server = await startBroker({ socketPath })
+
+		const pm = createSocketTransport({ socketPath, initialBackoffMs: 20 })
+		const got: ChannelMessage[] = []
+		cleanups.push(pm.watch('throwaway', (m) => got.push(m)))
+		await waitFor(() => server.connectedCount() === 1)
+		pm.rekey('real')
+		await new Promise((r) => setTimeout(r, 50))
+
+		await server.close() // broker restarts under us
+		const server2 = await startBroker({ socketPath })
+		cleanups.push(() => server2.close())
+		await waitFor(() => server2.connectedCount() === 1)
+
+		const worker = createSocketTransport({ socketPath })
+		cleanups.push(worker.watch('worker', () => {}))
+		await waitFor(() => server2.connectedCount() === 2)
+		worker.send('real', msg('after-reconnect', 'real'))
+		await waitFor(() => got.length === 1)
+		expect(got[0].id).toBe('after-reconnect')
+	})
+})
