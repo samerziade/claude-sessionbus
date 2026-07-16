@@ -6,8 +6,10 @@ import {
 	daemonPaths,
 	daemonStatus,
 	queryConnected,
+	removePid,
 	startDaemon,
-	stopDaemon
+	stopDaemon,
+	writePid
 } from './daemon.ts'
 import { startBroker } from './server.ts'
 
@@ -20,7 +22,12 @@ async function runForeground(): Promise<void> {
 		socketPath: paths.socketPath,
 		log: (m) => process.stderr.write(`broker: ${m}\n`)
 	})
+	// Claim the pid file for ourselves: under a launchd agent (or a bare
+	// `--foreground` run) nothing else records it, and without it `status`
+	// would report "not running" and `stop` would be a no-op.
+	writePid(paths, process.pid)
 	const shutdown = () => {
+		removePid(paths)
 		server.close().finally(() => process.exit(0))
 	}
 	process.on('SIGINT', shutdown)

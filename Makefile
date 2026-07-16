@@ -25,9 +25,18 @@ TRANSPORT     ?= socket
 CHANNELS_HOME ?= $(HOME)/.claude/channels
 BROKER        := CHANNELS_HOME=$(CHANNELS_HOME) node $(BROKER_ENTRY)
 
+# launchd (user LaunchAgent — starts at login, respawns on crash)
+LAUNCHD_LABEL ?= com.sessionbus.broker
+LAUNCHD_DIR   := $(HOME)/Library/LaunchAgents
+LAUNCHD_PLIST := $(LAUNCHD_DIR)/$(LAUNCHD_LABEL).plist
+LAUNCHD_TMPL  := $(ROOT)/broker/launchd/broker.plist.template
+LAUNCHD_TGT   := gui/$(shell id -u)/$(LAUNCHD_LABEL)
+NODE_BIN      := $(shell command -v node)
+
 .PHONY: help install test lint check setup teardown \
         mcp-add mcp-remove mcp-status \
         broker-start broker-stop broker-restart broker-status broker-logs broker-fg \
+        launchd-install launchd-uninstall launchd-status launchd-restart \
         claude alias doctor
 
 help: ## Show this help
@@ -61,8 +70,9 @@ setup: install mcp-add ## Install deps, register the MCP server, start the broke
 	@echo "Start a session with the channel loaded:  make claude"
 	@echo "Or add a permanent shell alias:           make alias"
 
-teardown: ## Stop the broker and unregister the MCP server
-	@if [ "$(TRANSPORT)" = "socket" ]; then $(MAKE) --no-print-directory broker-stop; fi
+teardown: ## Remove everything: launchd agent, broker, MCP registration
+	@if [ -f "$(LAUNCHD_PLIST)" ]; then $(MAKE) --no-print-directory launchd-uninstall; \
+	 elif [ "$(TRANSPORT)" = "socket" ]; then $(MAKE) --no-print-directory broker-stop; fi
 	@$(MAKE) --no-print-directory mcp-remove
 
 # ---------------------------------------------------------------- MCP server
@@ -98,6 +108,47 @@ broker-fg: ## Run the broker in the foreground (Ctrl-C to stop)
 broker-logs: ## Tail the broker log
 	@tail -f $(CHANNELS_HOME)/broker.log
 
+# ---------------------------------------------------------------- launchd (auto-start at login)
+
+# A user LaunchAgent, not a LaunchDaemon: a LaunchDaemon runs as root at boot
+# with HOME=/var/root, so the broker would bind a root-owned socket that your
+# (non-root) Claude sessions could never use. The broker must run as you.
+launchd-install: ## Install+start the broker as a login agent (auto-start, respawn on crash)
+	@test -n "$(NODE_BIN)" || { echo "node not found on PATH"; exit 1; }
+	@echo "stopping any manually-started broker first (avoids a bind conflict)..."
+	@$(BROKER) stop >/dev/null 2>&1 || true
+	@mkdir -p $(LAUNCHD_DIR) $(CHANNELS_HOME)
+	@sed -e 's|__LABEL__|$(LAUNCHD_LABEL)|g' \
+	     -e 's|__NODE__|$(NODE_BIN)|g' \
+	     -e 's|__ENTRY__|$(BROKER_ENTRY)|g' \
+	     -e 's|__CHANNELS_HOME__|$(CHANNELS_HOME)|g' \
+	     -e 's|__LOG__|$(CHANNELS_HOME)/broker.log|g' \
+	     -e 's|__ROOT__|$(ROOT)|g' \
+	     $(LAUNCHD_TMPL) > $(LAUNCHD_PLIST)
+	@echo "wrote $(LAUNCHD_PLIST)"
+	@launchctl bootout $(LAUNCHD_TGT) >/dev/null 2>&1 || true
+	@launchctl bootstrap gui/$(shell id -u) $(LAUNCHD_PLIST)
+	@launchctl enable $(LAUNCHD_TGT)
+	@sleep 1
+	@$(MAKE) --no-print-directory broker-status
+	@echo "broker will now start automatically at login."
+
+launchd-uninstall: ## Stop + remove the login agent (broker no longer auto-starts)
+	@launchctl bootout $(LAUNCHD_TGT) 2>/dev/null || echo "agent not loaded"
+	@rm -f $(LAUNCHD_PLIST) && echo "removed $(LAUNCHD_PLIST)"
+	@$(BROKER) stop >/dev/null 2>&1 || true
+	@echo "broker will no longer start at login."
+
+launchd-status: ## Show launchd agent state + broker status
+	@if [ -f "$(LAUNCHD_PLIST)" ]; then echo "plist: $(LAUNCHD_PLIST)"; else echo "plist: (not installed)"; fi
+	@launchctl print $(LAUNCHD_TGT) 2>/dev/null \
+	  | grep -E '^\s+(state|pid|last exit code|program) ' | sed 's/^/  /' \
+	  || echo "  agent not loaded"
+	@$(MAKE) --no-print-directory broker-status
+
+launchd-restart: ## Restart the login agent's broker
+	@launchctl kickstart -k $(LAUNCHD_TGT) && echo "kickstarted $(LAUNCHD_LABEL)"
+
 # ---------------------------------------------------------------- sessions
 
 claude: ## Launch a Claude session with the sessionbus channel loaded
@@ -125,6 +176,11 @@ doctor: ## Diagnose the setup (node, CLI, registration, broker, paths)
 	@printf "%-16s" "mcp registered:"; claude mcp get $(MCP_NAME) >/dev/null 2>&1 \
 	    && echo "yes" || echo "no — run 'make mcp-add'"
 	@printf "%-16s" "mcp transport:"; claude mcp get $(MCP_NAME) 2>/dev/null | grep -o 'SESSIONBUS_TRANSPORT=[a-z]*' || echo "(unset — defaults to file)"
+	@printf "%-16s" "launchd agent:"; if [ -f "$(LAUNCHD_PLIST)" ]; then \
+	    launchctl print $(LAUNCHD_TGT) >/dev/null 2>&1 \
+	      && echo "installed + loaded ($(LAUNCHD_LABEL)) — starts at login" \
+	      || echo "plist present but NOT loaded — run 'make launchd-install'"; \
+	  else echo "not installed (optional — 'make launchd-install')"; fi
 	@echo "broker:"
 	@$(BROKER) status 2>/dev/null | sed 's/^/  /' || echo "  unable to query broker"
 	@echo

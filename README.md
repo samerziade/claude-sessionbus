@@ -171,3 +171,35 @@ socket-mode sessions only talk to other socket-mode sessions through the broker.
 While the broker is down, a socket-mode session buffers outgoing messages and reconnects with
 backoff; it does not fall back to the file mailbox. In-memory broker queues are dropped if the
 broker itself restarts (durable queues are a planned follow-up).
+
+### Auto-start at login (macOS launchd)
+
+To have the broker always running, install it as a **user LaunchAgent** — it starts at login and
+respawns if it crashes:
+
+```bash
+make launchd-install      # install + start; auto-starts at login from now on
+make launchd-status       # agent state + broker status
+make launchd-restart      # kickstart the agent's broker
+make launchd-uninstall    # stop + remove; no longer auto-starts
+```
+
+`make launchd-install` renders `broker/launchd/broker.plist.template` with absolute paths into
+`~/Library/LaunchAgents/com.sessionbus.broker.plist` and bootstraps it. It is idempotent — re-run
+it any time (it stops a manually-started broker first to avoid a bind conflict).
+
+Details worth knowing:
+
+- **LaunchAgent, not LaunchDaemon.** A LaunchDaemon runs as root at boot with `HOME=/var/root`,
+  so the broker would bind a root-owned socket under `/var/root/.claude/channels` while your
+  Claude sessions — running as you — look in `~/.claude/channels`. They would never meet. The
+  broker must run as the same user as the sessions it serves.
+- **The agent runs `--foreground`,** because launchd supervises the process directly. `broker
+  start` detaches and exits, which launchd would read as an immediate crash and respawn-loop.
+- **A crash respawns; a deliberate stop does not.** `KeepAlive/SuccessfulExit=false` means
+  `make broker-stop` (clean exit) stays stopped rather than being fought by launchd; a real crash
+  is respawned after launchd's ~10s throttle. Use `make launchd-restart` to bring it back.
+- **The node path is pinned.** The plist stores an absolute path to the `node` binary, so an
+  nvm/fnm/homebrew node upgrade will break the agent — re-run `make launchd-install` afterwards.
+- Use launchd **or** the manual `broker start`/`stop` targets, not both at once: whichever binds
+  the socket first wins, and the other will refuse to start.
