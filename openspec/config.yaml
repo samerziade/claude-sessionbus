@@ -1,20 +1,54 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Project context — injected into every artifact prompt as a constraint.
+# Keep it high-signal: facts that change what gets written, not a copy of CLAUDE.md.
+context: |
+  sessionbus is a Claude Code channel: an MCP server spawned once per Claude session
+  over stdio, letting separate Claude Code sessions on one machine discover and message
+  each other. A session sends by calling a tool and receives as a `<channel …>` event
+  injected into its context.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Workspace: pnpm, two members — `bus/` (MCP server: message, identity, address,
+  registry, mailbox, handlers, index) and `broker/` (unix-socket daemon: protocol,
+  broker). Read CLAUDE.md at the repo root for the current module table, conventions,
+  and known open items; it is the source of truth and this file must not restate it.
+
+  Hard constraints:
+  - Node 25 native type-stripping, no build step: no enum/namespace/decorators/
+    parameter-properties. Local imports use `.ts` extensions, SDK imports use `.js`.
+  - No `any`, and no casts that launder types (`as unknown as X`) — narrow instead.
+  - Shared on-disk state is written atomically (write `.tmp`, then `renameSync`).
+  - Module-level mutable state is banned; use a `createX()` factory returning a closure,
+    exporting the factory plus a singleton where production needs one instance.
+  - Identity is keyed on `process.ppid`, never `CLAUDE_CODE_SESSION_ID`, and is never
+    cached. The presence beacon and the inbox subscription must always name the same id.
+
+  Existing capabilities in `openspec/specs/`: `session-discovery`, `session-messaging`.
+  Architecture seams where change is meant to land: the `Transport` interface in
+  `mailbox.ts`, and the dependency-injected `HandlerDeps` in `handlers.ts`.
+
+  Mission priorities, in order: (1) generalize identity/addressing so the pm/worker/epic
+  convention becomes a pluggable default strategy; (2) install globally as a proper
+  user-level MCP registration; (3) harden the socket broker transport.
+
+# Per-artifact rules — additive constraints on top of the schema's own instructions.
+# Keys must be artifact IDs from the schema: proposal, specs, design, tasks.
+# Quote every entry — an unquoted ": " makes YAML read the line as a map key and the
+# whole config is dropped with only a warning.
+rules:
+  proposal:
+    - "Check `openspec/specs/` first and reuse an existing capability name whenever the behavior belongs to it; only mint a new capability for genuinely new surface area."
+    - "State which architecture seam the change goes through (Transport, HandlerDeps, identity resolution), or say explicitly that it needs a new one."
+    - "Call out anything touching identity, beacons, or inbox subscription as a breaking risk — a beacon and subscription that disagree cause silent message loss."
+  specs:
+    - "Write every scenario so it is directly executable as a vitest case; avoid outcomes that can only be confirmed by reading logs or inspecting internals."
+    - "Cover the four categories the repo requires — happy path, negative scenarios, edge cases, and blind spots (partial writes, order-dependence, idempotency)."
+    - "Describe observable behavior only. File layouts, poll intervals, and wire framing are design decisions and belong in design.md."
+  design:
+    - "Name the seam being modified and state whether its interface changes; an interface change needs its own decision entry with alternatives considered."
+    - "Include a Testing Strategy decision covering which modules stay pure, what gets faked, and which `*.test.ts` files are added or extended."
+    - "Use Mermaid for every diagram — never ASCII art — and give every fenced block a language specifier."
+  tasks:
+    - "Order tasks test-first; the failing test comes before the implementation that satisfies it, matching the repo's TDD workflow."
+    - "Any new module gets a paired `*.test.ts` task in the same group."
+    - "End with a verification group that runs `pnpm lint` and the package test suites, plus a task to update CLAUDE.md if conventions, module layout, or open items moved."
