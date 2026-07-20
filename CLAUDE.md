@@ -27,6 +27,28 @@ The package lives in **`bus/`**. Source is `bus/src/*.ts`, each module paired wi
 | `handlers.ts` | DI tool handlers (`whoami`/`list_peers`/`send_message`) + inbound→notify bridge    | I/O via deps |
 | `index.ts`    | `main()`: build real deps, wire the MCP server, connect stdio (glue; no unit test) | I/O          |
 
+## Specs (`openspec/`)
+
+`openspec/specs/` is the **normative requirements baseline** — what the system SHALL do, written
+as requirements with WHEN/THEN scenarios. Two capabilities exist today:
+
+| Capability          | Covers                                                                       |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `session-discovery` | identity from session title, own-identity resolution, tolerant registry read, presence beacons + pid liveness, `whoami`, `list_peers` |
+| `session-messaging` | message schema + sortable id, channel meta mapping, to-address resolution, atomic mailbox transport, poll/watch delivery, `send_message`, broadcast fan-out, inbound channel event |
+
+**Read the relevant spec before answering a question about how the system behaves, and before
+proposing a change to it.** Grep or open `openspec/specs/<capability>/spec.md` — the requirement
+bodies are the contract, and the capability names alone do not tell you whether behavior is
+already specified. Use `openspec list --specs` to enumerate them.
+
+When proposing, reuse an existing capability name if the behavior belongs to it; only mint a new
+capability for genuinely new surface area. Additive constraints for the OpenSpec artifact
+generators live in `openspec/config.yaml` (`context` + per-artifact `rules`).
+
+`openspec/changes/` holds in-flight and archived change proposals. Archived changes are history;
+the baseline in `openspec/specs/` is what currently holds.
+
 ## Commands
 
 From the repo root:
@@ -235,7 +257,16 @@ When writing or editing any Markdown (`README.md`, `CLAUDE.md`, `docs/**`, etc.)
 
 ## Working style in this repo
 
-The repo was built brainstorm → plan → subagent-driven TDD, and the specs/plan live in
+The repo was built brainstorm → plan → subagent-driven TDD, and the original design brief lives in
 `docs/superpowers/`. Match that: use the superpowers skills (brainstorming before creative work,
 TDD before implementation), keep modules pure where they already are, and add the paired
-`*.test.ts` for any new module. When the plan doc and the shipped code disagree, **the code wins**.
+`*.test.ts` for any new module.
+
+Two different precedence rules apply, and they are not the same:
+
+- **`docs/superpowers/` is historical.** It records what was planned. When it and the shipped code
+  disagree, **the code wins** — update or ignore the plan doc.
+- **`openspec/specs/` is normative.** It records what the system is required to do. When it and the
+  shipped code disagree, **neither silently wins**: say so explicitly, and ask whether the code is a
+  bug or the spec has drifted. Do not quietly rewrite the spec to match the code, and do not treat a
+  spec mismatch as a proven defect without checking.
