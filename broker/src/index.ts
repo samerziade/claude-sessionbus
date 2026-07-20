@@ -11,6 +11,7 @@ import {
 	stopDaemon,
 	writePid
 } from './daemon.ts'
+import { createFatalGuard, wireFatalHandlers } from './fatal.ts'
 import { startBroker } from './server.ts'
 
 const CHANNELS_HOME = process.env.CHANNELS_HOME ?? join(homedir(), '.claude', 'channels')
@@ -18,14 +19,19 @@ const paths = daemonPaths(CHANNELS_HOME)
 const entryScript = fileURLToPath(import.meta.url)
 
 async function runForeground(): Promise<void> {
-	const server = await startBroker({
-		socketPath: paths.socketPath,
-		log: (m) => process.stderr.write(`broker: ${m}\n`)
-	})
+	const log = (m: string) => process.stderr.write(`broker: ${m}\n`)
+	// Fail loud: an unrecoverable error exits non-zero so the launchd agent
+	// (KeepAlive, SuccessfulExit=false) restarts us, instead of leaving a
+	// live-but-dead process the supervisor never sees. Idempotent — exits once.
+	const guard = createFatalGuard({ log, exit: process.exit })
+	wireFatalHandlers(process, guard)
+	const server = await startBroker({ socketPath: paths.socketPath, log, onFatal: guard })
 	// Claim the pid file for ourselves: under a launchd agent (or a bare
 	// `--foreground` run) nothing else records it, and without it `status`
 	// would report "not running" and `stop` would be a no-op.
 	writePid(paths, process.pid)
+	// Deliberate shutdown stays a clean exit(0), so SuccessfulExit=false leaves
+	// us stopped rather than respawning a process the operator stopped.
 	const shutdown = () => {
 		removePid(paths)
 		server.close().finally(() => process.exit(0))

@@ -10,7 +10,7 @@ over stdio, that lets separate Claude Code sessions on the same machine **discov
 each other**. A session _sends_ by calling a tool; it _receives_ as a `<channel …>` event
 injected into its context, which drives a turn even when the session is idle.
 
-Status: complete MVP. **101 tests passing** (79 in `bus`, 22 in `broker`). Nothing is on npm; it
+Status: complete MVP. **109 tests passing** (79 in `bus`, 30 in `broker`). Nothing is on npm; it
 runs locally.
 
 ## Layout
@@ -62,7 +62,7 @@ pnpm fmt                            # format + apply safe/unsafe fixes; run this
 From a package (`bus/` or `broker/`):
 
 ```bash
-pnpm test                           # vitest run — 55 tests in bus, 17 in broker
+pnpm test                           # vitest run — 79 tests in bus, 30 in broker
 pnpm start                          # node src/index.ts (see teardown note before smoke-testing)
 ```
 
@@ -164,6 +164,21 @@ process does **not** self-exit on stdin EOF — Claude Code tears it down via **
 removes the presence beacon and exits). Don't smoke-test with `node src/index.ts <<< ''` — it hangs.
 Background it and `kill -TERM`, and send the signal to the _real_ node pid (`$!` in a wrapped shell
 may point at a shell wrapper).
+
+## Broker lifecycle: fail loud under launchd
+
+The broker runs as a launchd agent whose only restart trigger is a **non-zero exit**
+(`KeepAlive` → `SuccessfulExit=false`), so the broker must actually exit when it fails.
+`broker/src/fatal.ts` (`createFatalGuard` + `wireFatalHandlers`) turns any unrecoverable
+runtime error — a post-listen listener `error`, an uncaught exception, an unhandled
+rejection — into a **single** non-zero exit; `server.ts` routes its post-listen error
+through `handleServerError`, and `index.ts` wires the guard onto the process. A
+caught-and-swallowed error is the failure this prevents: it strands a live-but-dead
+process launchd never restarts. Deliberate shutdown (`SIGTERM`/`SIGINT`/`stop`) stays a
+clean `exit(0)` so the agent leaves it stopped rather than fighting the operator.
+Exit-driven `KeepAlive` still cannot see a *hung* (non-exiting) broker — a watchdog for
+that is deferred. Normative contract: the `broker-lifecycle` capability (change
+`broker-fail-loud`; archive to promote it into `openspec/specs/`).
 
 ## Architecture seams (where change is meant to happen)
 

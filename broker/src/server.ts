@@ -11,10 +11,30 @@ export interface BrokerServer {
 export interface StartBrokerOptions {
 	socketPath: string
 	log?: (msg: string) => void
+	// Invoked on an unrecoverable post-listen listener error. Optional and log-only by
+	// default so `startBroker` stays embeddable; the supervised broker (index.ts) wires
+	// this to a fatal guard that exits non-zero so launchd restarts it.
+	onFatal?: (err: Error) => void
+}
+
+export interface ServerErrorDeps {
+	log: (msg: string) => void
+	onFatal?: (err: Error) => void
+}
+
+/**
+ * Handle a listen-socket `error` raised after the broker is serving. Always logs; when an
+ * `onFatal` is wired, forwards the error so the owner can fail loud. Named (not an inline
+ * closure) so the fail-loud routing is unit-testable without a real listener error.
+ */
+export function handleServerError(err: Error, deps: ServerErrorDeps): void {
+	deps.log(`server error: ${err.message}`)
+	deps.onFatal?.(err)
 }
 
 export function startBroker(opts: StartBrokerOptions): Promise<BrokerServer> {
 	const log = opts.log ?? (() => {})
+	const onFatal = opts.onFatal
 	return reclaimSocket(opts.socketPath).then(
 		() =>
 			new Promise<BrokerServer>((resolve, reject) => {
@@ -55,9 +75,12 @@ export function startBroker(opts: StartBrokerOptions): Promise<BrokerServer> {
 				server.on('error', reject)
 				server.listen(opts.socketPath, () => {
 					server.removeListener('error', reject)
-					server.on('error', (err) => {
-						log(`server error: ${err instanceof Error ? err.message : String(err)}`)
-					})
+					server.on('error', (err) =>
+						handleServerError(err instanceof Error ? err : new Error(String(err)), {
+							log,
+							onFatal
+						})
+					)
 					resolve({
 						connectedCount: () => core.connectedCount(),
 						close: () =>
