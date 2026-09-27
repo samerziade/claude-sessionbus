@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { parseSessionName, resolveIdentity, resolveSelf, type SessionEntry } from './identity.ts'
+import {
+	findSelfEntry,
+	parseSessionName,
+	resolveIdentity,
+	resolveSelf,
+	type SessionEntry
+} from './identity.ts'
 
 describe('parseSessionName', () => {
 	it('recognizes a PM session', () => {
@@ -95,5 +101,25 @@ describe('resolveSelf', () => {
 		const after = resolveSelf(22618, STALE_ENV_ID, [RESUMED])
 		expect(before).toMatchObject({ name: 'main-f4', role: 'none' })
 		expect(after).toMatchObject({ name: 'epic:1081', role: 'pm', epic: '1081' })
+	})
+})
+
+describe('findSelfEntry', () => {
+	const entries = [
+		{ sessionId: 'discarded', pid: 111, name: 'epic:1', cwd: '/a' },
+		{ sessionId: 'real', pid: 222, name: '123 epic:1', cwd: '/b' }
+	]
+
+	it('prefers the entry owned by our parent pid', () => {
+		expect(findSelfEntry(222, 'discarded', entries)?.cwd).toBe('/b')
+	})
+
+	it('falls back to the env session id when no entry owns our pid', () => {
+		expect(findSelfEntry(999, 'discarded', entries)?.cwd).toBe('/a')
+	})
+
+	it('returns nothing when neither matches', () => {
+		expect(findSelfEntry(999, 'nobody', entries)).toBeUndefined()
+		expect(findSelfEntry(999, undefined, entries)).toBeUndefined()
 	})
 })

@@ -34,8 +34,9 @@ bind a second listener.
 
 The broker SHALL exit the process with a non-zero status on any unrecoverable runtime
 error — a listen-socket `error` raised after the broker has begun serving, an uncaught
-exception, or an unhandled promise rejection — rather than continue running in a
-non-serving state. The supervisor restarts the broker only on a non-zero exit, so an
+exception, an unhandled promise rejection, or a `fatal`-severity configuration problem
+detected during startup before the broker has begun serving — rather than continue running
+in a non-serving state. The supervisor restarts the broker only on a non-zero exit, so an
 unrecoverable error that is caught and swallowed would strand a live-but-dead process the
 supervisor never restarts.
 
@@ -55,6 +56,13 @@ supervisor never restarts.
 
 - **WHEN** an unhandled promise rejection reaches the process-level backstop
 - **THEN** the broker exits the process with a non-zero status
+
+#### Scenario: A fatal configuration problem exits before the broker serves
+
+- **WHEN** the broker starts in foreground mode and configuration resolution produces a
+  `ConfigProblem` with `severity: 'fatal'`
+- **THEN** the broker exits the process with a non-zero status without opening its
+  listening socket
 
 ### Requirement: Deliberate shutdown exits cleanly
 
@@ -107,4 +115,22 @@ able to start — a stale socket left behind SHALL NOT block the respawn.
 - **WHEN** a broker has failed loud and a new broker is then started on the same socket
   path
 - **THEN** the new broker starts listening successfully
+
+### Requirement: The broker binds before any bridge work begins
+
+The broker SHALL bind its socket and begin serving before it resolves the appservice token or
+constructs the bridge. Resolving a credential runs an external command whose duration the broker
+does not control; performing it first means a slow or hung helper leaves the socket unbound, so
+sessions cannot reach each other at all. A Matrix problem may disable the bridge and SHALL NOT
+affect local delivery, which includes the delivery that has not started yet.
+
+#### Scenario: A token command that never returns leaves local messaging working
+
+- **WHEN** the broker starts with a bridge enabled whose token command never returns
+- **THEN** the socket is bound, two sessions register, and a message between them is delivered
+
+#### Scenario: The bridge still starts when the token resolves
+
+- **WHEN** the broker starts with a bridge enabled whose token command returns a token
+- **THEN** the socket is bound and the bridge is constructed
 

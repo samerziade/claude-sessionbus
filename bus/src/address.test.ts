@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveTo } from './address.ts'
+import { resolveTargets, resolveTo } from './address.ts'
 import type { PeerIdentity } from './identity.ts'
 
 const self: PeerIdentity = {
@@ -94,5 +94,66 @@ describe('resolveTo', () => {
 			expect(r.reason).toBe('ambiguous')
 			expect(r.candidates?.map((p) => p.sessionId).sort()).toEqual(['pm2345aaaa', 'wkr2222bbbb'])
 		}
+	})
+})
+
+describe('resolveTargets', () => {
+	it('resolves a single string exactly as resolveTo does', () => {
+		expect(resolveTargets('pm', self, peers)).toEqual(resolveTo('pm', self, peers))
+		expect(resolveTargets('epic', self, peers)).toEqual(resolveTo('epic', self, peers))
+		expect(resolveTargets('nobody', self, peers)).toEqual(resolveTo('nobody', self, peers))
+	})
+
+	it('aggregates a list of named targets into one session resolution', () => {
+		const r = resolveTargets(['pm', 'wkr2222bbbb'], self, peers)
+		expect(r).toMatchObject({ ok: true, kind: 'session' })
+		if (r.ok) expect(r.recipients.map((p) => p.sessionId)).toEqual(['pm2345aaaa', 'wkr2222bbbb'])
+	})
+
+	it('de-duplicates entries that resolve to the same peer, keeping first-seen order', () => {
+		const r = resolveTargets(['wkr2222bbbb', 'pm', 'wkr2222'], self, peers)
+		expect(r).toMatchObject({ ok: true, kind: 'session' })
+		if (r.ok) expect(r.recipients.map((p) => p.sessionId)).toEqual(['wkr2222bbbb', 'pm2345aaaa'])
+	})
+
+	it('fails with mixed_kind when a list holds a broadcast target', () => {
+		expect(resolveTargets(['epic', 'pm'], self, peers)).toEqual({
+			ok: false,
+			reason: 'mixed_kind'
+		})
+		expect(resolveTargets(['pm', 'epic:9'], self, peers)).toEqual({
+			ok: false,
+			reason: 'mixed_kind'
+		})
+	})
+
+	it('fails with mixed_kind for a one-entry list holding a broadcast target', () => {
+		expect(resolveTargets(['epic'], self, peers)).toEqual({ ok: false, reason: 'mixed_kind' })
+	})
+
+	it('surfaces the first failing entry and resolves nothing', () => {
+		expect(resolveTargets(['pm', 'no-such-peer'], self, peers)).toEqual({
+			ok: false,
+			reason: 'not_found'
+		})
+		const ambiguous = resolveTargets(['pm', '2345'], self, peers)
+		expect(ambiguous).toMatchObject({ ok: false, reason: 'ambiguous' })
+		if (!ambiguous.ok) expect(ambiguous.candidates).toHaveLength(2)
+	})
+
+	it('reports the earliest failure when several entries fail', () => {
+		expect(resolveTargets(['nope', '2345'], self, peers)).toEqual({
+			ok: false,
+			reason: 'not_found'
+		})
+	})
+
+	it('treats an empty list as nothing to resolve', () => {
+		expect(resolveTargets([], self, peers)).toEqual({ ok: false, reason: 'not_found' })
+	})
+
+	it('resolves a one-entry list of a named target', () => {
+		const r = resolveTargets(['pm'], self, peers)
+		expect(r).toEqual({ ok: true, kind: 'session', recipients: [pm] })
 	})
 })

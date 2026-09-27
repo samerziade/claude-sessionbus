@@ -57,6 +57,26 @@ describe('send + poll', () => {
 		const mb = createFileMailbox(home)
 		expect(mb.poll('nobody')).toEqual([])
 	})
+
+	// A fan-out is one logical message with one id written into several inboxes. Remembering
+	// only the id would make the first inbox polled swallow the delivery for every other one.
+	it('delivers both copies of a fanned-out id when one mailbox polls two inboxes', () => {
+		const mb = createFileMailbox(home)
+		mb.send('recipient-a', msg('aa-5'))
+		mb.send('recipient-b', msg('aa-5'))
+
+		expect(mb.poll('recipient-a').map((m) => m.id)).toEqual(['aa-5'])
+		expect(mb.poll('recipient-b').map((m) => m.id)).toEqual(['aa-5'])
+	})
+
+	it('still suppresses a repeat poll of the same inbox after a fan-out', () => {
+		const mb = createFileMailbox(home)
+		mb.send('recipient-a', msg('aa-6'))
+		mb.send('recipient-b', msg('aa-6'))
+		mb.poll('recipient-a')
+		mb.poll('recipient-b')
+		expect(mb.poll('recipient-a')).toEqual([])
+	})
 })
 
 describe('watch', () => {
@@ -160,5 +180,40 @@ describe('rekey (identity settling after --resume)', () => {
 		await new Promise((r) => setTimeout(r, 1300))
 
 		expect(got).toEqual([])
+	})
+})
+
+describe('the flat file mailbox has no bridge', () => {
+	it('answers a history read as unavailable rather than throwing', async () => {
+		const mb = createFileMailbox(home)
+
+		await expect(mb.history({})).resolves.toEqual({ ok: false, reason: 'unavailable' })
+	})
+
+	it('answers every shape of history query the same way', async () => {
+		const mb = createFileMailbox(home)
+
+		await expect(
+			mb.history({ room: '!epic:host', thread: 't_9f2a', since: 's-1', limit: 5, search: 'beacon' })
+		).resolves.toEqual({ ok: false, reason: 'unavailable' })
+	})
+
+	it('answers a Matrix-addressed reply as unavailable', async () => {
+		const mb = createFileMailbox(home)
+
+		await expect(mb.replyToHuman({ to: '@samer:host', text: 'on it' })).resolves.toEqual({
+			ok: false,
+			reason: 'unavailable'
+		})
+	})
+
+	it('touches no disk answering either: no directory is created', async () => {
+		const mb = createFileMailbox(home)
+		const before = readdirSync(home)
+
+		await mb.history({ room: '!epic:host' })
+		await mb.replyToHuman({ to: '@samer:host', text: 'on it' })
+
+		expect(readdirSync(home)).toEqual(before)
 	})
 })

@@ -1,11 +1,13 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { configFilePath, resolveConfig } from './config.ts'
 import {
 	daemonPaths,
 	daemonStatus,
+	queryConnected,
 	removePid,
 	startDaemon,
 	stopDaemon,
@@ -77,5 +79,54 @@ describe('daemon control', () => {
 		cleanups.push(() => stopDaemon(paths))
 		await waitFor(() => daemonStatus(paths).running)
 		expect(() => startDaemon(paths, entryScript)).toThrow(/already running/)
+	})
+})
+
+describe('a broker whose token command never answers', () => {
+	/**
+	 * A home holding a bridge configuration whose credential helper does not come back. This is
+	 * what a supervisor sees: no terminal to approve anything at, and a helper content to wait
+	 * for an approval forever. Well under the token deadline, so nothing is left running.
+	 */
+	function homeWithHangingHelper(): string {
+		const home = tempHome()
+		const file = {
+			transport: 'socket',
+			matrix: {
+				enabled: true,
+				url: 'https://matrix.invalid',
+				domain: 'matrix.invalid',
+				owner: '@nobody:matrix.invalid',
+				rootSpace: '#nobody:matrix.invalid',
+				tokenCommand: ['sleep', '20']
+			}
+		}
+		// Asserted, not assumed: a fixture the bridge rejects would run no command at all, and
+		// this case would pass while proving nothing.
+		expect(resolveConfig({ file, env: {}, home }).config.matrix.enabled).toBe(true)
+		const configPath = configFilePath(home)
+		mkdirSync(dirname(configPath), { recursive: true })
+		writeFileSync(configPath, JSON.stringify(file))
+		return home
+	}
+
+	it('binds and serves while the helper is still outstanding', async () => {
+		const home = homeWithHangingHelper()
+		const paths = daemonPaths(tempHome())
+		const realHome = process.env.HOME
+		process.env.HOME = home
+		cleanups.push(() => {
+			if (realHome === undefined) delete process.env.HOME
+			else process.env.HOME = realHome
+		})
+
+		startDaemon(paths, entryScript)
+		cleanups.push(() => stopDaemon(paths))
+
+		// The helper cannot have answered in this window, so a socket here is a socket bound
+		// ahead of it. `connected` proves more than the socket file does: the broker answered,
+		// so its event loop is free rather than blocked inside the command.
+		await waitFor(() => daemonStatus(paths).running && existsSync(paths.socketPath))
+		expect(await queryConnected(paths.socketPath)).toBe(0)
 	})
 })

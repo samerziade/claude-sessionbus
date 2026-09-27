@@ -10,7 +10,7 @@ over stdio, that lets separate Claude Code sessions on the same machine **discov
 each other**. A session _sends_ by calling a tool; it _receives_ as a `<channel …>` event
 injected into its context, which drives a turn even when the session is idle.
 
-Status: complete MVP. **109 tests passing** (79 in `bus`, 30 in `broker`). Nothing is on npm; it
+Status: complete MVP. **717 tests passing** (175 in `bus`, 542 in `broker`). Nothing is on npm; it
 runs locally.
 
 ## Layout
@@ -19,23 +19,61 @@ The package lives in **`bus/`**. Source is `bus/src/*.ts`, each module paired wi
 
 | Module        | Purpose                                                                            | Purity       |
 | ------------- | ---------------------------------------------------------------------------------- | ------------ |
-| `message.ts`  | `ChannelMessage` type, sortable id, `<channel>` meta mapping                       | pure         |
+| `message.ts`  | `ChannelMessage` (+ `thread` selector, `relay` context), sortable id, `<channel>` meta | pure      |
 | `identity.ts` | parse session title → role/epic/issue                                              | pure         |
-| `address.ts`  | resolve a `to` string → recipient sessionId(s)                                     | pure         |
+| `address.ts`  | resolve a `to` string — or a list of them — → recipient sessionId(s)               | pure         |
 | `registry.ts` | read `~/.claude/sessions/*.json`, presence beacons, pid liveness                   | I/O          |
-| `mailbox.ts`  | `Transport` interface + flat-file impl: send/poll/watch                            | I/O          |
-| `handlers.ts` | DI tool handlers (`whoami`/`list_peers`/`send_message`) + inbound→notify bridge    | I/O via deps |
+| `mailbox.ts`  | `Transport` interface + flat-file impl: send/poll/watch/rekey/history/reply        | I/O          |
+| `handlers.ts` | DI tool handlers (`whoami`/`list_peers`/`send_message`/`read_history`) + inbound→notify bridge | I/O via deps |
 | `index.ts`    | `main()`: build real deps, wire the MCP server, connect stdio (glue; no unit test) | I/O          |
+
+The broker daemon lives in **`broker/`**, on the same rule — `broker/src/*.ts`, each module
+paired with a `*.test.ts`:
+
+| Module                  | Purpose                                                                              | Purity       |
+| ----------------------- | ------------------------------------------------------------------------------------ | ------------ |
+| `protocol.ts`           | frame types (`RegisterFrame` carries optional `project`/`projectName`/`title`), codec, decoder | pure |
+| `config.ts`             | layered defaults → file → env resolution, severity-tagged problems, `config` report   | pure         |
+| `matrix-names.ts`       | project + work identity → user / room / space identifier; `slug`, `projectFromRemote` | pure         |
+| `fatal.ts`              | fail-loud guard: one non-zero exit per unrecoverable error                            | pure-ish     |
+| `broker.ts`             | routing core: conns, queues, identity maps, `onRegistered`/`onRouted` hooks           | in-memory    |
+| `bridge-state.ts`       | `BridgeState` seam: sync token, cursors, thread handles; atomic write, tolerant read  | I/O          |
+| `matrix-client.ts`      | homeserver calls over an **injected `fetch`**; typed outcomes, never throws           | I/O via deps |
+| `matrix-provisioner.ts` | idempotent `ensureUser`/`ensureSpace`/`ensureRoom`/`ensureMember` + bridge-user gate  | I/O via deps |
+| `matrix-mirror.ts`      | outbound mirror: id dedupe, room + thread selection, per-room queue with backoff      | I/O via deps |
+| `matrix-relay-filter.ts` | the inbound chain: namespace drop, bounded id dedupe, text-only, no self-wake        | pure         |
+| `matrix-window.ts`      | unread window selection under both caps + the rendered transcript                     | pure         |
+| `matrix-invites.ts`     | `decideInvite` (pure) + operator-only join/decline with idempotent retry               | I/O via deps |
+| `matrix-relay.ts`       | inbound relay: one masqueraded sync loop, fan-out through `route()`, cursors, catch-up, replies | I/O via deps |
+| `matrix-history.ts`     | `read_history` against the homeserver: room resolution, paging, `search`, `not_found`  | I/O via deps |
+| `server.ts`             | unix-socket listener, frame dispatch, stale-socket reclaim                            | I/O          |
+| `daemon.ts`             | pid file, start/stop/status, log path                                                 | I/O          |
+| `index.ts`              | `main()`: resolve config, wire the fatal guard, serve or dispatch a subcommand (glue) | I/O          |
+
+`broker/src/config.ts` (+ `config.test.ts`) is the third pure seam, alongside `mailbox.ts`'s
+`Transport` and `handlers.ts`'s `HandlerDeps`: `resolveConfig`/`formatConfigReport`/
+`resolveMatrixToken` take every input as a parameter and touch no `fs`, `child_process` or
+`process.env`. `bus/src/index.ts` imports it across the package boundary
+(`../../broker/src/config.ts`) — the second instance of the pattern `broker/src/daemon.ts`
+already uses to import `bus/src/registry.ts`, and the point of it: both halves must resolve the
+same transport and socket path or delivery breaks silently.
 
 ## Specs (`openspec/`)
 
 `openspec/specs/` is the **normative requirements baseline** — what the system SHALL do, written
-as requirements with WHEN/THEN scenarios. Two capabilities exist today:
+as requirements with WHEN/THEN scenarios. Five capabilities exist today:
 
-| Capability          | Covers                                                                       |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `session-discovery` | identity from session title, own-identity resolution, tolerant registry read, presence beacons + pid liveness, `whoami`, `list_peers` |
-| `session-messaging` | message schema + sortable id, channel meta mapping, to-address resolution, atomic mailbox transport, poll/watch delivery, `send_message`, broadcast fan-out, inbound channel event |
+| Capability             | Covers                                                                    |
+| ---------------------- | ------------------------------------------------------------------------- |
+| `session-discovery`    | identity from session title, own-identity resolution, tolerant registry read, presence beacons + pid liveness, `whoami`, `list_peers` |
+| `session-messaging`    | message schema + sortable id, channel meta mapping, to-address resolution, atomic mailbox transport, poll/watch delivery, `send_message`, broadcast fan-out, inbound channel event |
+| `broker-lifecycle`     | socket bind and stale-socket reclaim, fail-loud on unrecoverable errors (including a fatal config problem), clean deliberate shutdown, client-failure isolation |
+| `broker-configuration` | layered defaults → file → environment resolution, severity-tagged problems, secret resolution via `tokenCommand`, the `broker config` report, shared transport selection |
+| `session-grouping`     | deterministic identifiers, project derivation, idempotent provisioning of users/spaces/rooms, bridge-user membership, a session's remote title, durable grouping state |
+
+Two Matrix-bridge changes are in flight under `openspec/changes/` — `matrix-mirror` and
+`matrix-relay` — with `docs/superpowers/specs/2026-09-22-sessionbus-matrix-bridge-design.md`
+as their rationale.
 
 **Read the relevant spec before answering a question about how the system behaves, and before
 proposing a change to it.** Grep or open `openspec/specs/<capability>/spec.md` — the requirement
@@ -62,7 +100,7 @@ pnpm fmt                            # format + apply safe/unsafe fixes; run this
 From a package (`bus/` or `broker/`):
 
 ```bash
-pnpm test                           # vitest run — 79 tests in bus, 30 in broker
+pnpm test                           # vitest run — 82 tests in bus, 116 in broker
 pnpm start                          # node src/index.ts (see teardown note before smoke-testing)
 ```
 
@@ -83,6 +121,20 @@ Current, verified state:
   two-member workspace. A plain `pnpm install` from the root or from either package works.
 - **`biome.json`** (repo root) holds the formatter and linter config for the whole repo — there is
   no CSS or JSX here, so it covers TypeScript and JSON only. `pnpm exec biome check` is clean.
+- **`~/.claude/sessionbus/config.json`** is the shared runtime config file, read by both
+  entrypoints through `loadConfig` in `broker/src/config.ts`. Precedence is built-in defaults →
+  file → environment, and the environment layer is deliberately two variables wide
+  (`CHANNELS_HOME`, `SESSIONBUS_TRANSPORT`); every other field is file-only. A missing file is the
+  normal unconfigured state; an unreadable or corrupt one is a `warning` and falls back to
+  defaults. The built-in `transport` default stays `file`; `make config-seed` (a prerequisite of
+  `mcp-add` and `setup`) merges `transport: "socket"` into the file, which is why the MCP
+  registration no longer passes `-e SESSIONBUS_TRANSPORT`. Problems are returned as data tagged
+  `warning` (log it), `invalid` (the Matrix bridge is disabled, carrying a `disabledReason`) or
+  `fatal` (unusable `channelsHome` — the serving broker exits non-zero through the existing fatal
+  guard, before binding). `broker config` prints the resolved values with each leaf's source
+  (`default`/`file`/`env`) and every problem, and always exits 0 — it is the tool that explains
+  the very failure that stopped the broker. The launchd plist still carries only `CHANNELS_HOME`;
+  keep it that way.
 
 ## Constraints (Node 25 native type-stripping)
 
@@ -183,10 +235,52 @@ that is deferred. Normative contract: the `broker-lifecycle` capability (change
 ## Architecture seams (where change is meant to happen)
 
 - **`Transport` interface in `mailbox.ts`** is the seam for the future daemon. Everything above it
-  (`handlers.ts`, `index.ts`) depends only on `{ send, poll, watch, rekey }`. Swap the implementation,
-  keep the rest.
+  (`handlers.ts`, `index.ts`) depends only on
+  `{ send, poll, watch, rekey, history, replyToHuman }`. Swap the implementation, keep the rest.
+  The last two are request/reply against the broker rather than fire-and-forget, and the flat-file
+  implementation answers both `{ ok: false, reason: 'unavailable' }` without any I/O — a complete
+  and correct implementation for a transport with no bridge.
+- **Channel meta is origin-tagged.** Every message carries `origin` (`session` or `human`), and
+  `from_id` is a short session id for one and a full Matrix user id for the other, because
+  `from_id` has to stay a value a reply's `to` accepts. A relayed wake additionally carries `room`,
+  `unread`, `omitted`, `since`, and `thread`/`thread_title`/`mentions` where they apply.
 - **`handlers.ts` is dependency-injected** (`HandlerDeps { self, channelsHome, sessionsDir,
 transport, notify, now? }`) — testable without stdio; repoint discovery/transport cleanly.
+- **`config.ts` is the configuration seam** — `resolveConfig` is pure, the entrypoints are the only
+  glue that reads the file and the environment, and `resolveMatrixToken` takes its process runner
+  as a dependency, so nothing here needs disk or `process.env` to be tested.
+- **`BridgeState` in `bridge-state.ts`** is the durable-store seam, the same shape as `Transport`:
+  one interface, one file-backed implementation today. Reads are memory-backed, writes are
+  debounced and land atomically, and `flush()` runs on the deliberate-shutdown path only — the
+  fatal path stays fast because everything in the store is reconstructible.
+- **The injected `fetch` in `matrix-client.ts`** is the only place that talks to the network, so
+  every layer above it is testable without a homeserver. `matrix-provisioner.ts` never sees it:
+  it takes the `MatrixClient` interface, plus an injected clock and jitter source, so backoff is
+  exact in a test and nothing sleeps.
+- **`RegisterFrame` carries optional `project`, `projectName` and `title` at protocol version 1.**
+  The additions are deliberately not a version bump: a `bus` that predates the fields binds
+  exactly as before, where a bump would make it unreachable rather than merely unprovisioned.
+  `broker.ts`'s `onRegistered` hook fires only when a project is present, after binding and after
+  the welcome, and always with its own `catch`.
+- **A project is `<owner>-<repo>`, shown as `<owner>/<repo>`.** `projectFromRemote` keeps both
+  halves of the `origin` remote it parses. The identifier joins them with `-` because `.` is the
+  structural separator between an identifier's segments, so a project stays exactly one segment
+  however many dashes it holds — which is what keeps truncated and untruncated identifiers
+  disjoint. The readable form is the space's **display name**, never its alias: an alias has to
+  survive the identifier character rules and a display name has none to survive. Only the session
+  can know that form — which dash of `owner-repo` was the owner's cannot be recovered from the
+  slug — so it travels as `RegisterMeta.projectName` and reaches `ensureSpace`. A directory with
+  no usable remote still falls back to its own name, and a name that slugs to nothing is still no
+  project.
+- **The bridge never gates binding, and the token command never outlives its deadline.**
+  `runForeground` binds the socket, claims the pid file and installs its signal handlers before it
+  resolves the token or constructs the bridge; the broker's hooks read the bridge back through a
+  late-bound variable, the mirror image of the `serverRef()` the relay reads the broker back
+  through. `resolveMatrixToken` is async for the same reason — a synchronous spawn would block the
+  event loop of a broker that is already serving — and races the command against a ten-second
+  deadline it kills on. Ten seconds is not configurable. `daemon.test.ts` spawns the real
+  entrypoint against a helper that never answers and asserts the socket is up *and answering*; the
+  answer is the half a bound-but-blocked broker fails.
 - Config roots are env-overridable for tests: `SESSIONS_DIR` (default `~/.claude/sessions`),
   `CHANNELS_HOME` (default `~/.claude/channels`).
 
@@ -199,6 +293,34 @@ transport, notify, now? }`) — testable without stdio; repoint discovery/transp
    `readSessionEntries`'s `isSessionEntry`. Add an `isBeacon` guard.
 3. **Minor:** epic-broadcast `to.value` stores the raw `to` string but nothing reads it; a couple
    of test-coverage gaps (`epic:abc` → none; archival-failure redelivery).
+4. **A relayed wake is at-most-once at the channel gate.** The read cursor advances when the wake
+   is handed to a live conn. If that session's channel notifications are blocked above the broker,
+   the wake is consumed and lost with every layer below reporting success — no layer here can
+   observe it. Pre-existing for the local path too; the remedy is the launch flag and a `doctor`
+   check, not an acknowledgement protocol.
+5. **Only the bot's own invites are handled, and only the operator's are accepted.** An invite
+   addressed to a *session* user never appears in the bot's stream, so it stays pending for ever;
+   provisioning joins session users to the rooms it creates and leaves no pending invite. An
+   operator-gated accept path for session users is deferred until there is a use for it.
+6. **The bridge has run against a real homeserver once, and first contact found three things.**
+   Two were defects no fake could have caught, and one was a naming decision the operator
+   overruled on seeing it in a client; all three are fixed (`first-contact-fixes`). What it cost
+   is worth keeping: the token was resolved *before* `startBroker`, so a credential helper waiting
+   for an approval a launchd agent can never give left the socket unbound and five sessions unable
+   to reach each other. Nothing bounded the wait, either. Hence the two rules now in the code — the
+   broker binds before any bridge work begins, and the token command dies after ten seconds. Past
+   that, every test still fakes the homeserver, so the composition beyond first contact is proven
+   only against a fake; the live checks under "Live verification the tests cannot give" are what
+   close that gap.
+   A launchd-started broker gets no `PATH` of its own, so `make launchd-install` generates one
+   into the plist from where `node` and the token command actually are; without it the bridge
+   starts disabled at login while working perfectly by hand. `make config` prints the resolved
+   configuration with each field's source when you need to know why the bridge is off.
+7. **A `thread` handle still cannot be resolved synchronously on the socket transport.** The
+   request/reply frames this change added (`history`, `matrix_reply`) make it possible, but
+   `send_message` does not use them for thread resolution, so the staged guarantee in
+   `session-grouping` still holds: shape is checked everywhere, and an unresolvable handle mirrors
+   to the room's main timeline.
 
 ## Identity gotcha: never trust `CLAUDE_CODE_SESSION_ID`
 
@@ -251,6 +373,20 @@ In priority order:
 3. **Build the daemon transport** — a unix-socket broker behind the existing `Transport` interface,
    selected via `SESSIONBUS_TRANSPORT=file|socket` (default `file`). Land routing + a two-session
    proof first, then harden lifecycle.
+
+## Live verification the tests cannot give (run once, by hand)
+
+No test touches a homeserver: `fetch` is injected everywhere and every relay test drives a
+scripted transport. Two behaviours are therefore confirmed only by running them once against the
+real homeserver, and are regression checks rather than open questions:
+
+- **A pending invite survives a cold start.** Leave an operator invite to the bot pending, start
+  the bridge cold, and confirm the masqueraded initial sync reports it under `rooms.invite` and
+  the bot joins.
+- **A non-operator invite is declined.** Invite the bot from another local account and confirm it
+  leaves the room rather than joining.
+
+Both depend on homeserver behaviour that a fake `fetch` can only assume.
 
 ## Markdown conventions (docs in this repo)
 

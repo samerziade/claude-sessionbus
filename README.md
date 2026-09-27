@@ -159,14 +159,21 @@ node src/index.ts start      # background daemon (logs to ~/.claude/channels/bro
 node src/index.ts status     # running? pid? connected sessions?
 node src/index.ts stop
 node src/index.ts restart
+node src/index.ts config     # resolved configuration, each field's source, and any problems
 node src/index.ts             # or --foreground: run in this terminal (Ctrl-C to stop)
 ```
 
 ### Switch sessions to socket mode
 
-Set `SESSIONBUS_TRANSPORT=socket` for every session (e.g. in the user-level MCP registration
-`env` block). Unset — or `file` — keeps the file mailbox. All sessions on a machine must agree:
+Set `"transport": "socket"` in `~/.claude/sessionbus/config.json` — `make setup` (or
+`make config-seed`) seeds it. Both the broker and every session read that one file, so the two
+halves cannot disagree. `SESSIONBUS_TRANSPORT=socket|file` still overrides it for a one-off run.
+Unset everywhere — or `file` — keeps the file mailbox. All sessions on a machine must agree:
 socket-mode sessions only talk to other socket-mode sessions through the broker.
+
+`node broker/src/index.ts config` prints what was resolved, where each value came from, and any
+configuration problems; it always exits 0, even when it is reporting the problem that stops the
+broker from starting.
 
 While the broker is down, a socket-mode session buffers outgoing messages and reconnects with
 backoff; it does not fall back to the file mailbox. In-memory broker queues are dropped if the

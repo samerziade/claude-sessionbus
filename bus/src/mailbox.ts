@@ -9,7 +9,52 @@ import {
 	writeFileSync
 } from 'node:fs'
 import { join } from 'node:path'
-import type { ChannelMessage } from './message.ts'
+import type { ChannelMessage, MessageOrigin } from './message.ts'
+
+/**
+ * What a session asks for when it reads a room's history. Every field is optional: the common
+ * call is `read_history({})`, which answers for the caller's own room.
+ */
+export interface HistoryQuery {
+	room?: string
+	thread?: string
+	/** An opaque cursor from a wake or a previous read. Round-tripped, never parsed. */
+	since?: string
+	limit?: number
+	search?: string
+}
+
+/** One message as a history read reports it. */
+export interface HistoryMessage {
+	from: string
+	/** The value that identifies the author: a full Matrix user id. */
+	from_id: string
+	origin: MessageOrigin
+	text: string
+	at: number
+	/** The handle of the thread it belongs to, when it is in one. */
+	thread?: string
+}
+
+/**
+ * A discriminated union so a caller narrows on `ok` rather than casting. `unavailable` means
+ * there is no bridge to ask — a complete, correct answer for a transport without one, and the
+ * reason nothing here ever throws across the boundary.
+ */
+export type HistoryResult =
+	| { ok: true; room: string; messages: HistoryMessage[]; more: boolean }
+	| { ok: false; reason: 'unavailable' | 'not_found' }
+
+/** A reply addressed to a person rather than to a session. */
+export interface MatrixReplyRequest {
+	/** A full Matrix user id outside the namespace. */
+	to: string
+	text: string
+}
+
+export type MatrixReplyResult =
+	| { ok: true; room: string; thread?: string }
+	| { ok: false; reason: 'unavailable' | 'not_found' }
 
 export interface Transport {
 	/** Write a message into the recipient's inbox (atomic). */
@@ -26,11 +71,24 @@ export interface Transport {
 	 * subscription left on the startup id makes us silently unreachable. No-op before `watch`.
 	 */
 	rekey(ownSessionId: string): void
+	/**
+	 * Read a room's history. Request/reply against the broker, which is exactly what this seam
+	 * abstracts — giving `handlers.ts` a second connection of its own would mean choosing the
+	 * file/socket backend twice and keeping the two in step by hand.
+	 */
+	history(query: HistoryQuery): Promise<HistoryResult>
+	/** Post to a person in Matrix. Nothing local is written and no session is woken. */
+	replyToHuman(req: MatrixReplyRequest): Promise<MatrixReplyResult>
 }
+
+/** There is no bridge behind this transport, and saying so is a complete answer. */
+const UNAVAILABLE = { ok: false, reason: 'unavailable' } as const
 
 const POLL_MS = 1000
 
 export function createFileMailbox(channelsHome: string): Transport {
+	// Keyed by inbox *and* id: a fan-out writes one id into several inboxes, so remembering the
+	// id alone would let the first inbox drained swallow every other recipient's copy.
 	const delivered = new Set<string>() // per-instance dedup across polls
 
 	function inboxDir(sessionId: string): string {
@@ -65,8 +123,9 @@ export function createFileMailbox(channelsHome: string): Transport {
 			} catch {
 				continue // partially written; a later poll will catch it
 			}
-			if (!delivered.has(msg.id)) {
-				delivered.add(msg.id)
+			const seen = `${ownSessionId}\u0000${msg.id}`
+			if (!delivered.has(seen)) {
+				delivered.add(seen)
 				out.push(msg)
 			}
 			try {
@@ -127,5 +186,14 @@ export function createFileMailbox(channelsHome: string): Transport {
 		if (!stopped) observeCurrent?.()
 	}
 
-	return { send, poll, watch, rekey }
+	return {
+		send,
+		poll,
+		watch,
+		rekey,
+		// No I/O at all: a flat-file mailbox has no bridge to ask, and inventing an empty
+		// success would read as "the room is empty" rather than "there is no room".
+		history: async () => UNAVAILABLE,
+		replyToHuman: async () => UNAVAILABLE
+	}
 }

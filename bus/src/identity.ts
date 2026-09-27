@@ -52,12 +52,21 @@ export function resolveIdentity(sessionId: string, entries: SessionEntry[]): Pee
  * keyed by it. The env id remains a fallback for spawn paths where our parent is not the session
  * (a shell wrapper, say), where it is the only signal we have.
  */
+export function findSelfEntry(
+	ppid: number,
+	envSessionId: string | undefined,
+	entries: SessionEntry[]
+): SessionEntry | undefined {
+	const byPid = entries.find((e) => e.pid === ppid)
+	if (byPid) return byPid
+	return envSessionId ? entries.find((e) => e.sessionId === envSessionId) : undefined
+}
+
 export function resolveSelf(
 	ppid: number,
 	envSessionId: string | undefined,
 	entries: SessionEntry[]
 ): PeerIdentity | null {
-	const byPid = entries.find((e) => e.pid === ppid)
-	if (byPid) return resolveIdentity(byPid.sessionId, [byPid])
-	return envSessionId ? resolveIdentity(envSessionId, entries) : null
+	const entry = findSelfEntry(ppid, envSessionId, entries)
+	return entry ? resolveIdentity(entry.sessionId, [entry]) : null
 }
