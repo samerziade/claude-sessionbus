@@ -71,7 +71,7 @@ config:
 mcp-add: config-seed mcp-remove skills-install
 	claude mcp add $(MCP_NAME) -s user -- node $(BUS_ENTRY)
 
-mcp-remove:
+mcp-remove: skills-uninstall
 	@claude mcp remove $(MCP_NAME) -s user 2>/dev/null || echo "$(MCP_NAME): not registered"
 
 mcp-status:
