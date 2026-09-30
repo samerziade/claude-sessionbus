@@ -9,6 +9,8 @@ TRANSPORT     ?= socket
 CHANNELS_HOME ?= $(HOME)/.claude/channels
 CONFIG_FILE   := $(HOME)/.claude/sessionbus/config.json
 BROKER        := CHANNELS_HOME=$(CHANNELS_HOME) node $(BROKER_ENTRY)
+SKILLS_SRC    := $(ROOT)/skills
+SKILLS_DIR    ?= $(HOME)/.claude/skills
 
 LAUNCHD_LABEL ?= com.ai.sessionbus.broker
 LAUNCHD_DIR   := $(HOME)/Library/LaunchAgents
@@ -24,7 +26,7 @@ TOKEN_BIN     := $(shell command -v $(TOKEN_CMD))
 AGENT_PATH    := $(shell printf '%s\n' "$$(dirname $(NODE_BIN))" "$$(dirname $(TOKEN_BIN) 2>/dev/null)" /usr/bin /bin /usr/sbin /sbin | awk 'NF && !seen[$$0]++' | paste -sd: -)
 
 .PHONY: setup teardown config-seed config \
-        mcp-add mcp-remove mcp-status \
+        mcp-add mcp-remove mcp-status skills-install skills-uninstall \
         launchd-install launchd-uninstall launchd-status launchd-restart \
         claude alias
 
@@ -34,6 +36,7 @@ teardown:
 	@if [ -f "$(LAUNCHD_PLIST)" ]; then $(MAKE) --no-print-directory launchd-uninstall; \
 	 elif [ "$(TRANSPORT)" = "socket" ]; then $(BROKER) stop; fi
 	@$(MAKE) --no-print-directory mcp-remove
+	@$(MAKE) --no-print-directory skills-uninstall
 
 # ---------------------------------------------------------------- config file
 
@@ -65,7 +68,7 @@ config:
 # ---------------------------------------------------------------- MCP server
 
 # No -e SESSIONBUS_TRANSPORT: the transport comes from the config file seeded above.
-mcp-add: config-seed mcp-remove
+mcp-add: config-seed mcp-remove skills-install
 	claude mcp add $(MCP_NAME) -s user -- node $(BUS_ENTRY)
 
 mcp-remove:
@@ -73,6 +76,40 @@ mcp-remove:
 
 mcp-status:
 	@claude mcp get $(MCP_NAME) 2>&1 || true
+
+# ---------------------------------------------------------------- skills (shipped with the MCP server)
+
+# Link every skill under skills/ into the user's skills directory, so registering the server
+# also teaches sessions how to use it. A link, not a copy: the guidance tracks this checkout on
+# every pull. Anything already at a skill's path that is not our link is left alone, and the
+# install fails naming it.
+skills-install:
+	@mkdir -p "$(SKILLS_DIR)"
+	@rc=0; for f in "$(SKILLS_SRC)"/*/SKILL.md; do \
+	  [ -f "$$f" ] || continue; \
+	  src="$$(dirname "$$f")"; name="$$(basename "$$src")"; dst="$(SKILLS_DIR)/$$name"; \
+	  if [ -L "$$dst" ] && [ "$$(readlink "$$dst")" = "$$src" ]; then \
+	    echo "$$name: already installed at $$dst"; \
+	  elif [ -e "$$dst" ] || [ -L "$$dst" ]; then \
+	    echo "$$name: $$dst is in the way (not a link to $$src); leaving it alone" >&2; rc=1; \
+	  else \
+	    ln -s "$$src" "$$dst" && echo "$$name: linked $$dst -> $$src"; \
+	  fi; \
+	done; exit $$rc
+
+# Remove only the links skills-install made; anything else at those paths is reported and kept.
+skills-uninstall:
+	@for f in "$(SKILLS_SRC)"/*/SKILL.md; do \
+	  [ -f "$$f" ] || continue; \
+	  src="$$(dirname "$$f")"; name="$$(basename "$$src")"; dst="$(SKILLS_DIR)/$$name"; \
+	  if [ -L "$$dst" ] && [ "$$(readlink "$$dst")" = "$$src" ]; then \
+	    rm "$$dst" && echo "$$name: removed $$dst"; \
+	  elif [ -e "$$dst" ] || [ -L "$$dst" ]; then \
+	    echo "$$name: $$dst is not a link to $$src; leaving it alone"; \
+	  else \
+	    echo "$$name: not installed"; \
+	  fi; \
+	done
 
 # ---------------------------------------------------------------- launchd (auto-start at login)
 

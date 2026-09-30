@@ -83,6 +83,25 @@ Register it once, for every session, in `~/.claude.json`:
 }
 ```
 
+### The `sessionbus` skill
+
+The server ships with a Claude Code skill, `skills/sessionbus/SKILL.md`, that teaches sessions
+how to use it. The rule sessions most often miss: only a `send_message` with a session in `to`
+wakes that session. Anything a session posts into a room wakes nobody, `@`-mention or not.
+
+`make mcp-add` (and so `make setup`) links every skill under `skills/` into
+`~/.claude/skills/`, and `make teardown` removes those links. They are links, not copies, so an
+edit to a skill reaches every session on the next pull. To manage them on their own:
+
+```bash
+make skills-install                   # link each skills/<name> into ~/.claude/skills/<name>
+make skills-uninstall                 # remove only the links skills-install made
+make skills-install SKILLS_DIR=/tmp/x # install somewhere else
+```
+
+The installer never overwrites anything it did not create. If `~/.claude/skills/sessionbus`
+already exists and is not its link, it leaves it alone and exits non-zero, naming the path.
+
 ## Launch
 
 Custom channels are a Claude Code **research preview** and aren't allowlisted yet, so each session

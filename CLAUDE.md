@@ -58,6 +58,19 @@ paired with a `*.test.ts`:
 already uses to import `bus/src/registry.ts`, and the point of it: both halves must resolve the
 same transport and socket path or delivery breaks silently.
 
+### Shipped skills (`skills/`)
+
+`skills/<name>/SKILL.md` holds guidance **shipped to users**. `make mcp-add` links each one into
+`~/.claude/skills/`, so every session on the machine loads it. `.claude/skills/` is different:
+it holds this repo's own contributor skills (the OpenSpec ones), and those are never installed.
+
+This is where session-facing usage guidance lives. When sessions misuse the bus but the code is
+behaving correctly, fix it in the skill rather than in `bus/src` or `broker/src`. Test a skill
+edit the way `superpowers:writing-skills` prescribes: run a scenario with and without the skill,
+and read every run. The rule the `sessionbus` skill exists to teach is that only `send_message`
+with a session in `to` wakes that session. A session's room post wakes nobody, `@`-mention or
+not.
+
 ## Specs (`openspec/`)
 
 `openspec/specs/` is the **normative requirements baseline** — what the system SHALL do, written
@@ -73,7 +86,8 @@ as requirements with WHEN/THEN scenarios. Five capabilities exist today:
 
 Two Matrix-bridge changes are in flight under `openspec/changes/` — `matrix-mirror` and
 `matrix-relay` — with `docs/superpowers/specs/2026-09-22-sessionbus-matrix-bridge-design.md`
-as their rationale.
+as their rationale. `peer-wake-guidance` adds a sixth capability, `session-guidance`, covering
+the shipped `sessionbus` skill and how it is installed alongside the MCP registration.
 
 **Read the relevant spec before answering a question about how the system behaves, and before
 proposing a change to it.** Grep or open `openspec/specs/<capability>/spec.md` — the requirement
